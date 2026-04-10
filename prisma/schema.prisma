@@ -1,0 +1,276 @@
+// This is your Prisma schema file
+// https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Advertisements ────────────────────────────────────────────────────────────
+model Advertisement {
+  id              String    @id @default(cuid())
+  title           String
+  description     String?
+  type            String    // "image" | "video" | "html" | "text" | "fullscreen"
+  content         String    // URL for image/video, HTML string, or text content
+  thumbnailUrl    String?
+  duration        Int       @default(15)   // seconds to display
+  priority        Int       @default(5)    // 1 (low) - 10 (high)
+  isActive        Boolean   @default(true)
+  
+  // Scheduling
+  startDate       DateTime?
+  endDate         DateTime?
+  scheduleJson    String?   // JSON: { days: [0-6], startHour: 0, endHour: 24 }
+  
+  // Styling (for text/html ads)
+  backgroundColor String?   @default("#0f172a")
+  textColor       String?   @default("#ffffff")
+  accentColor     String?   @default("#6366f1")
+  
+  // Analytics
+  impressions     Int       @default(0)
+  totalPlayTime   Int       @default(0)  // total seconds shown
+  completions     Int       @default(0)  // times fully watched
+  
+  // AI
+  aiGenerated     Boolean   @default(false)
+  aiPrompt        String?
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  analyticsEvents AnalyticsEvent[]
+
+  @@map("advertisements")
+}
+
+// ─── Social Content ─────────────────────────────────────────────────────────────
+model Content {
+  id           String   @id @default(cuid())
+  platform     String   // "custom" | "instagram" | "twitter" | "tiktok" | "announcement"
+  
+  // Author info
+  author       String
+  authorHandle String?
+  authorAvatar String?
+  isVerified   Boolean  @default(false)
+  
+  // Content
+  text         String
+  mediaUrl     String?
+  mediaType    String?  // "image" | "video" | "gif"
+  
+  // Engagement
+  likes        Int      @default(0)
+  comments     Int      @default(0)
+  shares       Int      @default(0)
+  views        Int      @default(0)
+  
+  // Curation
+  isApproved   Boolean  @default(false)
+  isFeatured   Boolean  @default(false)
+  isHighlight  Boolean  @default(false)  // AI-determined highlight
+  displayOrder Int      @default(0)
+  
+  // AI Analysis
+  sentiment        String?  // "positive" | "neutral" | "negative"
+  sentimentScore   Float?   // -1 to 1
+  aiSummary        String?
+  aiTags           String?  // JSON array of tags
+  moderationPassed Boolean  @default(true)
+  
+  // Source
+  externalId  String?
+  externalUrl String?
+  
+  postedAt  DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("content")
+}
+
+// ─── Ticker Messages ────────────────────────────────────────────────────────────
+model TickerMessage {
+  id        String   @id @default(cuid())
+  text      String
+  emoji     String?  @default("📢")
+  isActive  Boolean  @default(true)
+  priority  Int      @default(5)
+  color     String?  @default("#f8fafc")
+  startDate DateTime?
+  endDate   DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("ticker_messages")
+}
+
+// ─── Settings ───────────────────────────────────────────────────────────────────
+model Setting {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       String
+  description String?
+  updatedAt   DateTime @updatedAt
+
+  @@map("settings")
+}
+
+// ─── Screen Groups ───────────────────────────────────────────────────────────────
+model ScreenGroup {
+  id          String    @id @default(cuid())
+  name        String
+  description String?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  screens     Screen[]
+
+  @@map("screen_groups")
+}
+
+// ─── Screens ────────────────────────────────────────────────────────────────────
+model Screen {
+  id            String    @id @default(cuid())
+  name          String
+  location      String?
+  layoutType    String    @default("default")  // "default" | "youtube" | "instagram" | "split_2" | "fullscreen" | "digital_signage" | "social_wall" | "ambient" | "promo" | "triple" | "news_focus" | "portrait"
+  layoutConfig  String?   // JSON: zone-level config
+  groupId       String?
+  orientation   String    @default("landscape")  // "landscape" | "portrait"
+  resolution    String?   // "1920x1080" | "3840x2160"
+  isActive      Boolean   @default(true)
+  lastSeen      DateTime?
+  ipAddress     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  group           ScreenGroup?     @relation(fields: [groupId], references: [id])
+  analyticsEvents AnalyticsEvent[]
+
+  @@map("screens")
+}
+
+// ─── YouTube Videos ──────────────────────────────────────────────────────────────
+model YouTubeVideo {
+  id           String   @id @default(cuid())
+  videoId      String   @unique
+  title        String
+  description  String?
+  thumbnailUrl String?
+  channelName  String?
+  duration     Int?
+  playlistId   String?
+  displayOrder Int      @default(0)
+  isActive     Boolean  @default(true)
+  autoplay     Boolean  @default(true)
+  muted        Boolean  @default(true)
+  loop         Boolean  @default(true)
+  startSeconds Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  playlist VideoPlaylist? @relation(fields: [playlistId], references: [id])
+
+  @@map("youtube_videos")
+}
+
+// ─── Video Playlists ─────────────────────────────────────────────────────────────
+model VideoPlaylist {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  loop        Boolean  @default(true)
+  shuffle     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  videos YouTubeVideo[]
+
+  @@map("video_playlists")
+}
+
+// ─── Instagram Posts ─────────────────────────────────────────────────────────────
+model InstagramPost {
+  id            String   @id @default(cuid())
+  instagramId   String?  @unique
+  username      String
+  displayName   String?
+  profilePicUrl String?
+  mediaUrl      String
+  mediaType     String   @default("IMAGE")  // "IMAGE" | "VIDEO" | "CAROUSEL_ALBUM"
+  thumbnailUrl  String?
+  caption       String?
+  permalink     String?
+  likeCount     Int      @default(0)
+  commentCount  Int      @default(0)
+  isApproved    Boolean  @default(true)
+  isDisplayed   Boolean  @default(true)
+  displayOrder  Int      @default(0)
+  postedAt      DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("instagram_posts")
+}
+
+// ─── Media Library ───────────────────────────────────────────────────────────────
+model MediaItem {
+  id           String   @id @default(cuid())
+  title        String
+  type         String   // "image" | "video" | "youtube" | "instagram"
+  url          String
+  thumbnailUrl String?
+  duration     Int?
+  fileSize     Int?
+  mimeType     String?
+  tags         String?  // JSON array
+  source       String   @default("upload")  // "upload" | "youtube" | "instagram" | "url"
+  metadata     String?  // JSON
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("media_items")
+}
+
+// ─── Analytics ──────────────────────────────────────────────────────────────────
+model AnalyticsEvent {
+  id              String   @id @default(cuid())
+  type            String   // "ad_impression" | "ad_complete" | "content_view" | "qr_scan"
+  advertisementId String?
+  contentId       String?
+  screenId        String?
+  duration        Int?     // seconds
+  metadataJson    String?  // JSON with extra info
+  createdAt       DateTime @default(now())
+
+  advertisement Advertisement? @relation(fields: [advertisementId], references: [id], onDelete: SetNull)
+  screen        Screen?        @relation(fields: [screenId], references: [id], onDelete: SetNull)
+
+  @@index([type, createdAt])
+  @@index([advertisementId])
+  @@map("analytics_events")
+}
+
+// ─── AI Requests Log ────────────────────────────────────────────────────────────
+model AIRequest {
+  id         String   @id @default(cuid())
+  type       String   // "generate_ad" | "analyze_content" | "moderate" | "suggest" | "chat"
+  prompt     String
+  response   String
+  model      String   @default("gpt-4o")
+  tokensUsed Int?
+  durationMs Int?
+  createdAt  DateTime @default(now())
+
+  @@map("ai_requests")
+}

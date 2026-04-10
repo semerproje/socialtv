@@ -1,0 +1,35 @@
+{
+  "name": "social-tv",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@prisma/client": "^5.13.0",
+    "axios": "^1.15.0",
+    "clsx": "^2.1.1",
+    "date-fns": "^3.6.0",
+    "firebase": "^12.11.0",
+    "firebase-admin": "^13.7.0",
+    "framer-motion": "^11.2.9",
+    "hls.js": "^1.6.15",
+    "lucide-react": "^0.395.0",
+    "next": "^16.2.3",
+    "next-themes": "^0.3.0",
+    "openai": "^4.47.1",
+    "qrcode.react": "^3.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-dropzone": "^14.2.3",
+    "react-hot-toast": "^2.4.1",
+    "recharts": "^2.12.7",
+    "sharp": "^0.33.4",
+    "tailwind-merge": "^2.3.0",
+    "uuid": "^10.0.0",
+    "zustand": "^4.5.2",
+    "firebase-frameworks": "^0.11.0",
+    "firebase-functions": "^6.0.1"
+  },
+  "main": "server.js",
+  "engines": {
+    "node": "20"
+  }
+}

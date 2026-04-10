@@ -1,0 +1,205 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-inter: 'Inter', system-ui, sans-serif;
+  --font-space: 'Space Grotesk', system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: #030712;
+  color: #f8fafc;
+  font-family: var(--font-inter);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ─── TV Screen ───────────────────────────────── */
+.tv-root {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: #020810;
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(99,102,241,0.07) 0%, transparent 100%),
+    radial-gradient(circle, rgba(255,255,255,0.012) 1px, transparent 1px);
+  background-size: auto, 44px 44px;
+  position: relative;
+}
+
+/* Subtle vignette */
+.tv-root::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 100% 100% at 50% 50%, transparent 55%, rgba(2,8,16,0.65) 100%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.tv-root::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(to bottom, rgba(2,8,16,0.35) 0%, transparent 15%),
+    linear-gradient(to top,    rgba(2,8,16,0.45) 0%, transparent 15%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* ─── Glassmorphism Cards ─────────────────────── */
+.glass {
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-dark {
+  background: rgba(15, 23, 42, 0.8);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* ─── News Ticker ─────────────────────────────── */
+.ticker-wrapper {
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.ticker-track {
+  display: inline-flex;
+  animation: ticker var(--ticker-duration, 40s) linear infinite;
+  will-change: transform;
+}
+
+.ticker-track:hover {
+  animation-play-state: paused;
+}
+
+@keyframes ticker {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+/* ─── Social Feed Card ────────────────────────── */
+.feed-card {
+  animation: slideUp 0.6s ease-out forwards;
+  opacity: 0;
+}
+
+.feed-card:nth-child(1) { animation-delay: 0s; }
+.feed-card:nth-child(2) { animation-delay: 0.1s; }
+.feed-card:nth-child(3) { animation-delay: 0.2s; }
+.feed-card:nth-child(4) { animation-delay: 0.3s; }
+
+@keyframes slideUp {
+  from { transform: translateY(24px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+/* ─── Progress Bar ────────────────────────────── */
+.progress-bar {
+  background: linear-gradient(90deg, #6366f1, #22d3ee);
+  border-radius: 9999px;
+  transition: width 1s linear;
+}
+
+/* ─── Pulse Dot ───────────────────────────────── */
+.pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+  animation: pulseRing 2s ease-out infinite;
+}
+
+@keyframes pulseRing {
+  0%   { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+  70%  { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+/* ─── Admin Sidebar ───────────────────────────── */
+.sidebar-link {
+  @apply flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200;
+  @apply text-tv-muted hover:text-tv-text hover:bg-white/5;
+}
+
+.sidebar-link.active {
+  @apply text-tv-text bg-white/10;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.1);
+}
+
+/* ─── Admin Card ──────────────────────────────── */
+.admin-card {
+  @apply rounded-2xl border border-white/10 bg-tv-card p-6;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+}
+
+/* ─── Button Variants ────────────────────────── */
+.btn-primary {
+  @apply inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold;
+  @apply bg-tv-primary hover:bg-indigo-500 text-white transition-all duration-200;
+  @apply shadow-lg;
+}
+
+.btn-secondary {
+  @apply inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium;
+  @apply border border-white/10 hover:bg-white/5 text-tv-text transition-all duration-200;
+}
+
+.btn-danger {
+  @apply inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium;
+  @apply bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 transition-all duration-200;
+}
+
+/* ─── Input ──────────────────────────────────── */
+.input-field {
+  @apply w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-tv-text;
+  @apply placeholder:text-tv-muted focus:outline-none focus:border-tv-primary/60 focus:ring-1 focus:ring-tv-primary/30;
+  @apply transition-all duration-200;
+}
+
+/* ─── Badge ──────────────────────────────────── */
+.badge {
+  @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium;
+}
+
+.badge-primary { @apply bg-indigo-500/20 text-indigo-300 border border-indigo-500/30; }
+.badge-success { @apply bg-emerald-500/20 text-emerald-300 border border-emerald-500/30; }
+.badge-warning { @apply bg-amber-500/20 text-amber-300 border border-amber-500/30; }
+.badge-danger  { @apply bg-red-500/20 text-red-300 border border-red-500/30; }
+.badge-muted   { @apply bg-white/5 text-slate-400 border border-white/10; }
+.badge-live    { @apply bg-emerald-500/20 text-emerald-300 border border-emerald-500/30; }
+.badge-ai      { @apply bg-violet-500/20 text-violet-300 border border-violet-500/30; }
+.badge-new     { @apply bg-sky-500/20 text-sky-300 border border-sky-500/30; }
+
+/* ─── Scrollbar ──────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(99, 102, 241, 0.4);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(99, 102, 241, 0.7);
+}
+
+/* ─── Transitions ────────────────────────────── */
+.fade-enter { opacity: 0; }
+.fade-enter-active { opacity: 1; transition: opacity 0.4s ease; }
+.fade-exit { opacity: 1; }
+.fade-exit-active { opacity: 0; transition: opacity 0.4s ease; }

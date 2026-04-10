@@ -1,0 +1,621 @@
+'use client';
+
+import { useEffect, useState, useCallback } from 'react';
+import toast from 'react-hot-toast';
+import { motion, AnimatePresence } from 'framer-motion';
+import { cn } from '@/lib/utils';
+import { detectScheduleConflicts } from '@/lib/schedule-engine';
+import type { LiveChannel, ScheduleEvent, SchedulePriority, ScreenData } from '@/types';
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const DAYS_TR = ['Paz', 'Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt'];
+const MONTHS_TR = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
+
+const EVENT_COLORS = [
+  '#6366f1', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ef4444', '#14b8a6',
+];
+
+const EVENT_TYPES = [
+  { value: 'layout', label: 'Düzen Değiştir', icon: '⊞' },
+  { value: 'youtube', label: 'YouTube Video', icon: '▶' },
+  { value: 'instagram', label: 'Instagram', icon: '◈' },
+  { value: 'content', label: 'İçerik', icon: '🖼' },
+  { value: 'announcement', label: 'Duyuru', icon: '📢' },
+  { value: 'live_tv', label: 'Canlı TV', icon: '📡' },
+  { value: 'markets', label: 'Piyasalar', icon: '📈' },
+  { value: 'news', label: 'Haberler', icon: '📰' },
+];
+
+const PRIORITY_OPTIONS: Array<{ value: SchedulePriority; label: string }> = [
+  { value: 'low', label: 'Düşük' },
+  { value: 'normal', label: 'Normal' },
+  { value: 'high', label: 'Yüksek' },
+  { value: 'critical', label: 'Kritik' },
+];
+
+const LAYOUTS = [
+  'default', 'youtube', 'instagram', 'split_2', 'fullscreen', 'digital_signage',
+  'social_wall', 'ambient', 'promo', 'triple', 'news_focus', 'portrait', 'markets',
+];
+
+const RECURRENCE_OPTIONS = [
+  { value: 'once', label: 'Bir Kez' },
+  { value: 'daily', label: 'Her Gün' },
+  { value: 'weekdays', label: 'Hafta İçi (Pzt-Cum)' },
+  { value: 'weekends', label: 'Hafta Sonu (Cmt-Paz)' },
+  { value: 'weekly', label: 'Her Hafta' },
+];
+
+const HOURS_VISIBLE = Array.from({ length: 24 }, (_, i) => i); // 0-23
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function getWeekStart(date: Date): Date {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Mon
+  return new Date(d.setDate(diff));
+}
+
+function addDays(date: Date, n: number): Date {
+  const d = new Date(date);
+  d.setDate(d.getDate() + n);
+  return d;
+}
+
+function fmt(date: Date): string {
+  return `${date.getDate()} ${MONTHS_TR[date.getMonth()]}`;
+}
+
+function fmtIso(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function getEventColor(event: ScheduleEvent, idx: number): string {
+  return event.color ?? EVENT_COLORS[idx % EVENT_COLORS.length];
+}
+
+function eventTop(startAt: string, dayStart: Date): number {
+  const start = new Date(startAt);
+  const diffMs = start.getTime() - dayStart.getTime();
+  return Math.max(0, (diffMs / (24 * 60 * 60 * 1000)) * 100);
+}
+
+function eventHeight(startAt: string, endAt?: string): number {
+  if (!endAt) return 4; // 1 hour default visual
+  const diff = new Date(endAt).getTime() - new Date(startAt).getTime();
+  return Math.max(2, (diff / (24 * 60 * 60 * 1000)) * 100);
+}
+
+// ─── Event Form Modal ─────────────────────────────────────────────────────────
+
+interface EventFormProps {
+  initial?: Partial<ScheduleEvent>;
+  screens: ScreenData[];
+  channels: LiveChannel[];
+  onSave: (data: Partial<ScheduleEvent>) => void;
+  onClose: () => void;
+  onDelete?: () => void;
+}
+
+function EventFormModal({ initial, screens, channels, onSave, onClose, onDelete }: EventFormProps) {
+  const [form, setForm] = useState({
+    title: initial?.title ?? '',
+    description: initial?.description ?? '',
+    screenId: initial?.screenId ?? '',
+    type: initial?.type ?? 'layout',
+    layoutType: initial?.layoutType ?? 'default',
+    contentRef: initial?.contentRef ?? '',
+    sourceRef: initial?.sourceRef ?? '',
+    startAt: initial?.startAt ? initial.startAt.slice(0, 16) : fmtIso(new Date()),
+    endAt: initial?.endAt ? initial.endAt.slice(0, 16) : '',
+    recurrence: initial?.recurrence ?? 'once',
+    priority: initial?.priority ?? 'normal',
+    autoSwitch: initial?.autoSwitch ?? true,
+    color: initial?.color ?? EVENT_COLORS[0],
+    isActive: initial?.isActive ?? true,
+  });
+
+  const set = (k: string, v: string | boolean) => setForm((f) => ({ ...f, [k]: v }));
+
+  const handleSave = () => {
+    if (!form.title.trim()) { toast.error('Başlık gerekli'); return; }
+    if (!form.startAt) { toast.error('Başlangıç zamanı gerekli'); return; }
+    if (form.type === 'live_tv' && !form.sourceRef) { toast.error('Canlı TV için yayın kaynağı seçin'); return; }
+    onSave({
+      ...form,
+      screenId: form.screenId || undefined,
+      endAt: form.endAt || undefined,
+      contentRef: form.contentRef || undefined,
+      sourceRef: form.sourceRef || undefined,
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 10 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        className="w-full max-w-lg rounded-2xl border border-white/10 shadow-2xl overflow-y-auto max-h-[90vh]"
+        style={{ background: '#0f1117' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between p-5 border-b" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
+          <h3 className="text-white font-bold">{initial?.id ? 'Etkinliği Düzenle' : 'Yeni Etkinlik'}</h3>
+          <button onClick={onClose} className="text-white/30 hover:text-white/60 transition-colors text-xl">×</button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {/* Title */}
+          <div>
+            <label className="label">Başlık *</label>
+            <input value={form.title} onChange={(e) => set('title', e.target.value)} className="input w-full" placeholder="Etkinlik adı" />
+          </div>
+
+          {/* Color picker */}
+          <div>
+            <label className="label">Renk</label>
+            <div className="flex gap-2">
+              {EVENT_COLORS.map((c) => (
+                <button
+                  key={c}
+                  onClick={() => set('color', c)}
+                  className={cn('w-6 h-6 rounded-full flex-shrink-0 transition-transform', form.color === c ? 'scale-125 ring-2 ring-white/40' : 'hover:scale-110')}
+                  style={{ background: c }}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* Screen + Type */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Ekran</label>
+              <select value={form.screenId} onChange={(e) => set('screenId', e.target.value)} className="input w-full">
+                <option value="">Tüm Ekranlar</option>
+                {screens.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Tür</label>
+              <select value={form.type} onChange={(e) => set('type', e.target.value)} className="input w-full">
+                {EVENT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.icon} {t.label}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Layout selector (only for layout type) */}
+          {form.type === 'layout' && (
+            <div>
+              <label className="label">Düzen</label>
+              <select value={form.layoutType} onChange={(e) => set('layoutType', e.target.value)} className="input w-full">
+                {LAYOUTS.map((l) => <option key={l} value={l}>{l}</option>)}
+              </select>
+            </div>
+          )}
+
+          {form.type === 'live_tv' && (
+            <div>
+              <label className="label">Yayın Kaynağı</label>
+              <select value={form.sourceRef} onChange={(e) => set('sourceRef', e.target.value)} className="input w-full">
+                <option value="">Kaynak seçin</option>
+                {channels.map((channel) => (
+                  <option key={channel.id} value={channel.id}>{channel.title} · {channel.provider}</option>
+                ))}
+              </select>
+              <p className="text-[11px] text-white/30 mt-1.5">Sadece resmi embed veya lisanslı stream tanımlı kaynaklar listelenir.</p>
+            </div>
+          )}
+
+          {/* Start + End time */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Başlangıç *</label>
+              <input type="datetime-local" value={form.startAt} onChange={(e) => set('startAt', e.target.value)} className="input w-full" />
+            </div>
+            <div>
+              <label className="label">Bitiş (opsiyonel)</label>
+              <input type="datetime-local" value={form.endAt} onChange={(e) => set('endAt', e.target.value)} className="input w-full" />
+            </div>
+          </div>
+
+          {/* Recurrence */}
+          <div>
+            <label className="label">Tekrar</label>
+            <div className="flex gap-2 flex-wrap">
+              {RECURRENCE_OPTIONS.map((r) => (
+                <button
+                  key={r.value}
+                  onClick={() => set('recurrence', r.value)}
+                  className={cn(
+                    'px-3 py-1.5 rounded-lg border text-xs transition-all',
+                    form.recurrence === r.value
+                      ? 'border-indigo-500/60 bg-indigo-500/15 text-indigo-300'
+                      : 'border-white/10 text-white/40 hover:border-white/20'
+                  )}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Öncelik</label>
+              <select value={form.priority} onChange={(e) => set('priority', e.target.value)} className="input w-full">
+                {PRIORITY_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Akıllı Geçiş</label>
+              <label className="input w-full flex items-center gap-2 text-sm text-white/70 cursor-pointer">
+                <input type="checkbox" checked={Boolean(form.autoSwitch)} onChange={(e) => set('autoSwitch', e.target.checked)} />
+                Etkin olduğunda ekranı otomatik devral
+              </label>
+            </div>
+          </div>
+
+          {/* Description */}
+          <div>
+            <label className="label">Not (opsiyonel)</label>
+            <textarea value={form.description} onChange={(e) => set('description', e.target.value)} rows={2} className="input w-full resize-none text-sm" placeholder="Açıklama..." />
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center gap-3 p-5 border-t" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
+          {onDelete && (
+            <button onClick={onDelete} className="btn-secondary text-red-400 hover:text-red-300 border-red-500/20 mr-auto">
+              Sil
+            </button>
+          )}
+          <button onClick={onClose} className="btn-secondary">İptal</button>
+          <button onClick={handleSave} className="btn-primary">
+            {initial?.id ? 'Güncelle' : 'Oluştur'}
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
+export default function SchedulePage() {
+  const [weekStart, setWeekStart] = useState<Date>(() => getWeekStart(new Date()));
+  const [events, setEvents] = useState<ScheduleEvent[]>([]);
+  const [screens, setScreens] = useState<ScreenData[]>([]);
+  const [channels, setChannels] = useState<LiveChannel[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editingEvent, setEditingEvent] = useState<ScheduleEvent | null>(null);
+  const [newEventDefaults, setNewEventDefaults] = useState<Partial<ScheduleEvent>>({});
+
+  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+
+  const fetchAll = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [evRes, scrRes, tvRes] = await Promise.allSettled([
+        fetch('/api/schedule'),
+        fetch('/api/screens'),
+        fetch('/api/tv-channels?active=1'),
+      ]);
+      if (evRes.status === 'fulfilled' && evRes.value.ok) {
+        const d = await evRes.value.json();
+        setEvents(d.data ?? []);
+      }
+      if (scrRes.status === 'fulfilled' && scrRes.value.ok) {
+        const d = await scrRes.value.json();
+        setScreens(d.data ?? []);
+      }
+      if (tvRes.status === 'fulfilled' && tvRes.value.ok) {
+        const d = await tvRes.value.json();
+        setChannels(d.data ?? []);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  const handleSave = async (data: Partial<ScheduleEvent>) => {
+    if (editingEvent?.id) {
+      const res = await fetch(`/api/schedule/${editingEvent.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (res.ok) { toast.success('Güncellendi'); fetchAll(); }
+      else toast.error('Güncellenemedi');
+    } else {
+      const res = await fetch('/api/schedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (res.ok) { toast.success('Etkinlik oluşturuldu'); fetchAll(); }
+      else toast.error('Oluşturulamadı');
+    }
+    setShowForm(false);
+    setEditingEvent(null);
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Bu etkinliği silmek istiyor musunuz?')) return;
+    const res = await fetch(`/api/schedule/${id}`, { method: 'DELETE' });
+    if (res.ok) { toast.success('Silindi'); fetchAll(); }
+    setShowForm(false);
+    setEditingEvent(null);
+  };
+
+  const openCreate = (day: Date, hour: number) => {
+    const startAt = new Date(day);
+    startAt.setHours(hour, 0, 0, 0);
+    const endAt = new Date(startAt);
+    endAt.setHours(hour + 1);
+    setNewEventDefaults({ startAt: fmtIso(startAt), endAt: fmtIso(endAt) });
+    setEditingEvent(null);
+    setShowForm(true);
+  };
+
+  const openEdit = (event: ScheduleEvent) => {
+    setEditingEvent(event);
+    setShowForm(true);
+  };
+
+  // ── Filter events for a specific day ──────────────────────────────────────
+  const eventsForDay = (day: Date): ScheduleEvent[] => {
+    const dayStr = day.toISOString().slice(0, 10);
+    return events.filter((e) => {
+      const eDay = e.startAt.slice(0, 10);
+      if (e.recurrence === 'once') return eDay === dayStr;
+      if (e.recurrence === 'daily') return true;
+      const dow = day.getDay();
+      if (e.recurrence === 'weekdays') return dow >= 1 && dow <= 5;
+      if (e.recurrence === 'weekends') return dow === 0 || dow === 6;
+      if (e.recurrence === 'weekly') {
+        try {
+          const days = e.daysOfWeek ? (typeof e.daysOfWeek === 'string' ? JSON.parse(e.daysOfWeek) : e.daysOfWeek) : [];
+          return days.includes(dow);
+        } catch { return false; }
+      }
+      return false;
+    });
+  };
+
+  // ── Hour-based grid ────────────────────────────────────────────────────────
+  // Each hour row = 60px
+  const HOUR_H = 60;
+  const GRID_H = HOUR_H * 24;
+
+  function getTopPx(startAt: string) {
+    const d = new Date(startAt);
+    return (d.getHours() * 60 + d.getMinutes()) * (HOUR_H / 60);
+  }
+
+  function getHeightPx(startAt: string, endAt?: string) {
+    if (!endAt) return HOUR_H;
+    const diff = new Date(endAt).getTime() - new Date(startAt).getTime();
+    return Math.max(HOUR_H / 2, (diff / 3_600_000) * HOUR_H);
+  }
+
+  const screenMap = Object.fromEntries(screens.map((s) => [s.id, s]));
+  const conflicts = detectScheduleConflicts(events);
+  const liveTvCount = events.filter((event) => event.type === 'live_tv').length;
+  const criticalCount = events.filter((event) => event.priority === 'critical' || event.priority === 'high').length;
+  const nextLiveEvent = [...events]
+    .filter((event) => event.type === 'live_tv' && new Date(event.startAt).getTime() >= Date.now())
+    .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())[0];
+  const nextLiveChannel = nextLiveEvent?.sourceRef ? channels.find((channel) => channel.id === nextLiveEvent.sourceRef) : null;
+
+  return (
+    <div className="flex flex-col h-screen overflow-hidden bg-[#030712]">
+      {/* Header */}
+      <header
+        className="flex items-center justify-between px-6 py-4 border-b flex-shrink-0"
+        style={{ borderColor: 'rgba(255,255,255,0.06)', background: '#070b12' }}
+      >
+        <div>
+          <h1 className="text-white font-bold text-xl" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+            Yayın Takvimi
+          </h1>
+          <p className="text-white/35 text-xs mt-0.5">{events.length} etkinlik planlandı</p>
+          <div className="flex flex-wrap gap-2 mt-3 text-[11px]">
+            <span className="badge badge-muted">{liveTvCount} canlı TV yayını</span>
+            <span className={cn('badge', conflicts.length > 0 ? 'badge-warning' : 'badge-success')}>
+              {conflicts.length} çakışma
+            </span>
+            <span className={cn('badge', criticalCount > 0 ? 'badge-danger' : 'badge-muted')}>
+              {criticalCount} yüksek öncelik
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          {nextLiveEvent && (
+            <div className="hidden xl:flex flex-col rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 min-w-[250px]">
+              <p className="text-[10px] uppercase tracking-[0.2em] text-white/25">Sıradaki Canlı Yayın</p>
+              <p className="text-white text-sm font-semibold mt-1">{nextLiveEvent.title}</p>
+              <p className="text-white/35 text-xs mt-1">{nextLiveChannel?.title ?? 'Kaynak seçilmedi'} · {fmt(new Date(nextLiveEvent.startAt))}</p>
+            </div>
+          )}
+          {/* Week navigation */}
+          <div className="flex items-center gap-1 rounded-xl border border-white/10 overflow-hidden">
+            <button
+              onClick={() => setWeekStart((d) => addDays(d, -7))}
+              className="px-3 py-2 text-white/50 hover:text-white hover:bg-white/5 transition-colors text-sm"
+            >
+              ←
+            </button>
+            <button
+              onClick={() => setWeekStart(getWeekStart(new Date()))}
+              className="px-3 py-2 text-white/50 hover:text-white hover:bg-white/5 transition-colors text-xs border-x border-white/10"
+            >
+              Bugün
+            </button>
+            <button
+              onClick={() => setWeekStart((d) => addDays(d, 7))}
+              className="px-3 py-2 text-white/50 hover:text-white hover:bg-white/5 transition-colors text-sm"
+            >
+              →
+            </button>
+          </div>
+          <button
+            onClick={() => { setEditingEvent(null); setNewEventDefaults({}); setShowForm(true); }}
+            className="btn-primary text-sm"
+          >
+            + Yeni Etkinlik
+          </button>
+        </div>
+      </header>
+
+      {/* Calendar */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Time gutter */}
+        <div
+          className="flex-shrink-0 w-16 overflow-hidden flex flex-col"
+          style={{ background: 'rgba(0,0,0,0.2)', borderRight: '1px solid rgba(255,255,255,0.05)' }}
+        >
+          {/* Day header placeholder */}
+          <div className="h-12 flex-shrink-0 border-b" style={{ borderColor: 'rgba(255,255,255,0.05)' }} />
+          {/* Hour labels */}
+          <div className="flex-1 overflow-y-hidden relative" style={{ height: GRID_H }}>
+            {HOURS_VISIBLE.map((h) => (
+              <div
+                key={h}
+                className="absolute right-2 text-[10px] text-white/20 tabular-nums"
+                style={{ top: h * HOUR_H - 7 }}
+              >
+                {String(h).padStart(2, '0')}:00
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Day columns */}
+        <div className="flex-1 overflow-auto">
+          <div className="flex min-w-0" style={{ minWidth: 700 }}>
+            {days.map((day, di) => {
+              const isToday = day.toDateString() === new Date().toDateString();
+              const dayEvents = eventsForDay(day);
+
+              return (
+                <div key={di} className="flex-1 min-w-0 flex flex-col border-r" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+                  {/* Day header */}
+                  <div
+                    className={cn(
+                      'h-12 flex-shrink-0 flex flex-col items-center justify-center border-b',
+                      isToday ? 'bg-indigo-500/10' : ''
+                    )}
+                    style={{ borderColor: 'rgba(255,255,255,0.05)' }}
+                  >
+                    <p className={cn('text-[10px] font-medium uppercase tracking-widest', isToday ? 'text-indigo-400' : 'text-white/30')}>
+                      {DAYS_TR[day.getDay()]}
+                    </p>
+                    <p className={cn('text-base font-bold', isToday ? 'text-indigo-300' : 'text-white/60')}>
+                      {day.getDate()}
+                    </p>
+                  </div>
+
+                  {/* Hourly grid */}
+                  <div className="relative" style={{ height: GRID_H }}>
+                    {/* Hour lines */}
+                    {HOURS_VISIBLE.map((h) => (
+                      <div
+                        key={h}
+                        className="absolute left-0 right-0 border-t cursor-pointer hover:bg-white/[0.02] transition-colors group"
+                        style={{ top: h * HOUR_H, height: HOUR_H, borderColor: 'rgba(255,255,255,0.04)' }}
+                        onClick={() => openCreate(day, h)}
+                      >
+                        <div className="hidden group-hover:flex items-center justify-center h-full text-white/15 text-xs">
+                          + {String(h).padStart(2, '0')}:00
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* Events */}
+                    {dayEvents.map((ev, ei) => {
+                      const top = getTopPx(ev.startAt);
+                      const height = getHeightPx(ev.startAt, ev.endAt);
+                      const color = getEventColor(ev, ei);
+                      const screenName = ev.screenId ? (screenMap[ev.screenId]?.name ?? 'Bilinmeyen Ekran') : 'Tüm Ekranlar';
+                      const typeLabel = EVENT_TYPES.find((t) => t.value === ev.type)?.label ?? ev.type;
+                      const channelLabel = ev.sourceRef ? channels.find((channel) => channel.id === ev.sourceRef)?.title : null;
+
+                      return (
+                        <motion.div
+                          key={ev.id}
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          className="absolute left-1 right-1 rounded-lg overflow-hidden cursor-pointer hover:brightness-110 transition-all z-10"
+                          style={{ top, height: Math.max(height, 28), background: `${color}25`, border: `1px solid ${color}50` }}
+                          onClick={(e) => { e.stopPropagation(); openEdit(ev); }}
+                        >
+                          <div className="px-1.5 py-1 h-full flex flex-col justify-start overflow-hidden">
+                            <p className="text-[11px] font-semibold truncate" style={{ color }}>
+                              {ev.title}
+                            </p>
+                            {height > 40 && (
+                              <>
+                                <p className="text-[10px] truncate" style={{ color: `${color}99` }}>{typeLabel}</p>
+                                {channelLabel && <p className="text-[10px] truncate" style={{ color: `${color}82` }}>{channelLabel}</p>}
+                                <p className="text-[10px] truncate" style={{ color: `${color}70` }}>{screenName}</p>
+                              </>
+                            )}
+                          </div>
+                          {/* Recurrence indicator */}
+                          {ev.recurrence !== 'once' && (
+                            <div
+                              className="absolute top-1 right-1 text-[8px] rounded px-1 font-bold"
+                              style={{ background: `${color}40`, color }}
+                            >
+                              ↺
+                            </div>
+                          )}
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Legend */}
+      <div
+        className="flex items-center gap-4 px-6 py-2.5 border-t flex-shrink-0 overflow-x-auto"
+        style={{ borderColor: 'rgba(255,255,255,0.05)', background: '#070b12' }}
+      >
+        <span className="text-white/25 text-[10px] uppercase tracking-widest flex-shrink-0">Ekranlar:</span>
+        {screens.map((s, i) => (
+          <div key={s.id} className="flex items-center gap-1.5 flex-shrink-0">
+            <div className="w-2.5 h-2.5 rounded-full" style={{ background: EVENT_COLORS[i % EVENT_COLORS.length] }} />
+            <span className="text-white/40 text-[11px]">{s.name}</span>
+          </div>
+        ))}
+        <span className="text-white/15 text-[10px] ml-auto flex-shrink-0">* Hücreye tıkla: yeni etkinlik · Etkinliğe tıkla: düzenle</span>
+      </div>
+
+      {/* Form Modal */}
+      <AnimatePresence>
+        {showForm && (
+          <EventFormModal
+            initial={editingEvent ?? newEventDefaults}
+            screens={screens}
+            channels={channels}
+            onSave={handleSave}
+            onClose={() => { setShowForm(false); setEditingEvent(null); }}
+            onDelete={editingEvent?.id ? () => handleDelete(editingEvent.id) : undefined}
+          />
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
