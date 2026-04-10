@@ -30,3 +30,7 @@ env:
     secret: GEMINI_API_KEY
     availability:
       - RUNTIME
+  - variable: ADMIN_OPS_EMAILS
+    value: sa@socialtv.com
+  - variable: ADMIN_ALLOWED_EMAILS
+    value: sa@socialtv.com
