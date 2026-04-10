@@ -127,10 +127,11 @@ export interface MarketCurrency {
 
 export interface MarketMetal {
   code: string;   // "XAU", "XAG"
-  name: string;   // "Altın (gram)"
+  name: string;   // "Altın", "Gümüş"
   priceTRY: number;
   priceUSD: number;
   change?: number;
+  unit?: 'gram' | 'oz';
 }
 
 export interface MarketCrypto {

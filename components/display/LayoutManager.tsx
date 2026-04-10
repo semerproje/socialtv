@@ -858,48 +858,423 @@ function NewsFocusLayout({
 function MarketsLayout({
   markets, news, tickers, weather, primaryColor, secondaryColor,
 }: CommonProps & { markets?: MarketData; news?: any[] }) {
-  return (
-    <div className="flex flex-col h-full overflow-hidden">
-      {/* Header */}
+  // ── Animated number hook ──────────────────────────────────────────────
+  const [displayMarkets, setDisplayMarkets] = useState<MarketData | null>(markets ?? null);
+  const [flashMap, setFlashMap] = useState<Record<string, 'up' | 'down'>>({});
+  const prevRef = useRef<MarketData | null>(null);
+  const [lastUpdate, setLastUpdate] = useState(new Date());
+  const [countdown, setCountdown] = useState(180);
+  const [activeTab, setActiveTab] = useState<'doviz' | 'emtia' | 'kripto'>('doviz');
+
+  // Fetch periodically
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval>;
+    const doFetch = () => {
+      fetch('/api/markets').then(r => r.json()).then(d => {
+        if (!d.success) return;
+        const next: MarketData = d.data;
+        // compute flash
+        const f: Record<string, 'up' | 'down'> = {};
+        if (prevRef.current) {
+          const prev = prevRef.current;
+          for (const c of next.currencies) {
+            const p = prev.currencies.find(x => x.code === c.code);
+            if (p && c.rate !== p.rate) f[c.code] = c.rate > p.rate ? 'up' : 'down';
+          }
+          for (const m of next.metals) {
+            const p = prev.metals.find(x => x.code === m.code);
+            if (p && m.priceTRY !== p.priceTRY) f[m.code] = m.priceTRY > p.priceTRY ? 'up' : 'down';
+          }
+          for (const c of next.crypto) {
+            const p = prev.crypto.find(x => x.code === c.code);
+            if (p && c.priceUSD !== p.priceUSD) f[c.code] = c.priceUSD > p.priceUSD ? 'up' : 'down';
+          }
+        }
+        prevRef.current = next;
+        setDisplayMarkets(next);
+        setLastUpdate(new Date());
+        setCountdown(180);
+        if (Object.keys(f).length > 0) {
+          setFlashMap(f);
+          setTimeout(() => setFlashMap({}), 1800);
+        }
+      }).catch(() => {});
+    };
+    doFetch();
+    timer = setInterval(doFetch, 180_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Countdown timer
+  useEffect(() => {
+    const t = setInterval(() => setCountdown(c => Math.max(0, c - 1)), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Tab auto-rotate every 8 s
+  useEffect(() => {
+    const tabs: ('doviz' | 'emtia' | 'kripto')[] = ['doviz', 'emtia', 'kripto'];
+    const t = setInterval(() => setActiveTab(cur => {
+      const i = tabs.indexOf(cur);
+      return tabs[(i + 1) % tabs.length];
+    }), 8000);
+    return () => clearInterval(t);
+  }, []);
+
+  const m = displayMarkets;
+
+  function fmtN(n: number, dec = 2) {
+    return new Intl.NumberFormat('tr-TR', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n);
+  }
+  function fmtCompact(n: number) {
+    if (n >= 1_000_000) return `${fmtN(n / 1_000_000, 2)}M`;
+    if (n >= 1_000) return `${fmtN(n / 1_000, 1)}K`;
+    return fmtN(n, 0);
+  }
+  function chgColor(v?: number) {
+    if (!v) return 'text-white/40';
+    return v > 0 ? 'text-emerald-400' : 'text-red-400';
+  }
+  function flashBg(code: string) {
+    if (flashMap[code] === 'up') return 'rgba(16,185,129,0.18)';
+    if (flashMap[code] === 'down') return 'rgba(239,68,68,0.18)';
+    return 'transparent';
+  }
+  function ChgBadge({ v }: { v?: number }) {
+    if (!v) return <span className="text-white/30 text-[11px] tabular-nums">—</span>;
+    return (
+      <span className={`flex items-center gap-0.5 text-[11px] font-semibold tabular-nums ${chgColor(v)}`}>
+        {v > 0 ? '▲' : '▼'} {Math.abs(v).toFixed(2)}%
+      </span>
+    );
+  }
+
+  // ── Tab content panels ────────────────────────────────────────────────
+  const DovizPanel = () => (
+    <div className="grid grid-cols-1 gap-2 h-full">
+      {(m?.currencies ?? []).map(c => (
+        <motion.div
+          key={c.code}
+          layout
+          animate={{ backgroundColor: flashBg(c.code) }}
+          transition={{ duration: 0.3 }}
+          className="flex items-center justify-between px-5 py-3.5 rounded-xl"
+          style={{ background: flashBg(c.code) || 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}
+        >
+          <div className="flex items-center gap-3">
+            <div
+              className="w-10 h-10 rounded-lg flex items-center justify-center font-bold text-xs flex-shrink-0"
+              style={{ background: `${primaryColor}20`, color: primaryColor, border: `1px solid ${primaryColor}30` }}
+            >
+              {c.code}
+            </div>
+            <div>
+              <p className="text-white/90 text-sm font-semibold">{c.name}</p>
+              <p className="text-white/40 text-[10px] uppercase tracking-wider">{c.code}/TRY</p>
+            </div>
+          </div>
+          <div className="text-right">
+            <p className="text-white text-xl font-bold tabular-nums" style={{ fontFamily: "'Space Grotesk', monospace" }}>
+              {fmtN(c.rate, 3)} <span className="text-white/50 text-sm font-normal">₺</span>
+            </p>
+            <ChgBadge v={c.change} />
+          </div>
+        </motion.div>
+      ))}
+    </div>
+  );
+
+  const EmtiaPanel = () => (
+    <div className="grid grid-cols-1 gap-2 h-full">
+      {(m?.metals ?? []).map(metal => (
+        <motion.div
+          key={metal.code}
+          animate={{ backgroundColor: flashBg(metal.code) }}
+          transition={{ duration: 0.3 }}
+          className="flex items-center justify-between px-5 py-3.5 rounded-xl"
+          style={{ background: flashBg(metal.code) || 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}
+        >
+          <div className="flex items-center gap-3">
+            <div
+              className="w-10 h-10 rounded-lg flex items-center justify-center text-lg flex-shrink-0"
+              style={{ background: 'rgba(234,179,8,0.15)', border: '1px solid rgba(234,179,8,0.25)' }}
+            >
+              {metal.code === 'XAU' ? '🥇' : '🥈'}
+            </div>
+            <div>
+              <p className="text-white/90 text-sm font-semibold">{metal.name}</p>
+              <p className="text-white/40 text-[10px] uppercase tracking-wider">gram · ${fmtN(metal.priceUSD, 3)}</p>
+            </div>
+          </div>
+          <div className="text-right">
+            <p className="text-white text-xl font-bold tabular-nums" style={{ fontFamily: "'Space Grotesk', monospace" }}>
+              {fmtN(metal.priceTRY)} <span className="text-white/50 text-sm font-normal">₺</span>
+            </p>
+            <ChgBadge v={metal.change} />
+          </div>
+        </motion.div>
+      ))}
+      {(!m?.metals || m.metals.length === 0) && (
+        <p className="text-white/20 text-sm text-center py-8">Emtia verisi yükleniyor…</p>
+      )}
+    </div>
+  );
+
+  const KriptoPanel = () => (
+    <div className="grid grid-cols-1 gap-2 h-full overflow-y-auto" style={{ scrollbarWidth: 'none' }}>
+      {(m?.crypto ?? []).map(c => (
+        <motion.div
+          key={c.code}
+          animate={{ backgroundColor: flashBg(c.code) }}
+          transition={{ duration: 0.3 }}
+          className="flex items-center justify-between px-5 py-3 rounded-xl"
+          style={{ background: flashBg(c.code) || 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}
+        >
+          <div className="flex items-center gap-3">
+            <div
+              className="w-10 h-10 rounded-lg flex items-center justify-center font-bold text-[10px] flex-shrink-0"
+              style={{ background: 'rgba(124,58,237,0.2)', color: '#a78bfa', border: '1px solid rgba(124,58,237,0.3)' }}
+            >
+              {c.code}
+            </div>
+            <div>
+              <p className="text-white/90 text-sm font-semibold">{c.name}</p>
+              <p className="text-white/40 text-[10px] tabular-nums">{fmtCompact(c.priceTRY)} ₺</p>
+            </div>
+          </div>
+          <div className="text-right">
+            <p className="text-white text-lg font-bold tabular-nums" style={{ fontFamily: "'Space Grotesk', monospace" }}>
+              ${fmtCompact(c.priceUSD)}
+            </p>
+            <ChgBadge v={c.change} />
+          </div>
+        </motion.div>
+      ))}
+    </div>
+  );
+
+  // ── Hero top section (always visible) ────────────────────────────────
+  const usd = m?.currencies.find(c => c.code === 'USD');
+  const eur = m?.currencies.find(c => c.code === 'EUR');
+  const gbp = m?.currencies.find(c => c.code === 'GBP');
+  const gold = m?.metals.find(x => x.code === 'XAU');
+  const btc = m?.crypto.find(c => c.code === 'BTC');
+
+  function HeroCard({ label, sub, value, unit, change, accent }: {
+    label: string; sub?: string; value: string; unit: string; change?: number; accent: string;
+  }) {
+    return (
       <div
+        className="flex-1 min-w-0 rounded-2xl p-5 flex flex-col justify-between relative overflow-hidden"
+        style={{ background: 'rgba(255,255,255,0.03)', border: `1px solid ${accent}20` }}
+      >
+        {/* glow */}
+        <div className="absolute inset-0 pointer-events-none" style={{ background: `radial-gradient(circle at 20% 20%, ${accent}10 0%, transparent 60%)` }} />
+        <div>
+          <p className="text-white/50 text-[11px] font-bold uppercase tracking-[0.18em]">{label}</p>
+          {sub && <p className="text-white/30 text-[10px] mt-0.5">{sub}</p>}
+        </div>
+        <div>
+          <p
+            className="text-white font-extrabold leading-none tabular-nums mt-2"
+            style={{ fontSize: 'clamp(1.4rem, 2.8vw, 2.4rem)', fontFamily: "'Space Grotesk', monospace", color: 'white' }}
+          >
+            {value} <span style={{ fontSize: '0.45em', opacity: 0.5 }}>{unit}</span>
+          </p>
+          <div className="mt-1.5 flex items-center gap-1">
+            {change != null ? (
+              <>
+                <span className={`text-sm font-semibold ${change > 0 ? 'text-emerald-400' : change < 0 ? 'text-red-400' : 'text-white/30'}`}>
+                  {change > 0 ? '▲' : change < 0 ? '▼' : '—'} {Math.abs(change).toFixed(2)}%
+                </span>
+                <span className="text-white/20 text-[10px]">24s</span>
+              </>
+            ) : <span className="text-white/20 text-xs">—</span>}
+          </div>
+        </div>
+        {/* accent line */}
+        <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-b-2xl" style={{ background: `linear-gradient(90deg, transparent, ${accent}60, transparent)` }} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden" style={{ background: 'rgb(2,8,23)' }}>
+      {/* ── Header ──────────────────────────────────────────────────────── */}
+      <header
         className="flex items-center justify-between px-6 py-3 flex-shrink-0 relative z-10"
-        style={{ background: 'rgba(2,8,23,0.94)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}
+        style={{ background: 'rgba(2,8,23,0.96)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}
       >
         <AccentLine primaryColor={primaryColor} />
-        <img src="/logo.png" alt="" className="h-7 w-auto object-contain" />
+        <div className="flex items-center gap-3">
+          <img src="/logo.png" alt="" className="h-7 w-auto object-contain" />
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full" style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)' }}>
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-emerald-400 text-[10px] font-bold uppercase tracking-wider">Canlı Piyasa</span>
+          </div>
+        </div>
         <div className="flex items-center gap-5">
           <WeatherWidget weather={weather} city={weather?.city ?? ''} compact />
           <div className="w-px h-6 bg-white/10" />
-          <ClockWidget compact />
+          <div className="flex flex-col items-end gap-0.5">
+            <ClockWidget compact />
+            <span className="text-white/25 text-[9px] tabular-nums">{countdown}s</span>
+          </div>
+        </div>
+      </header>
+
+      {/* ── Hero bar ──────────────────────────────────────────────────── */}
+      <div className="flex gap-3 px-4 pt-3 pb-2 flex-shrink-0">
+        {usd && <HeroCard label="ABD Doları" sub="USD/TRY" value={fmtN(usd.rate, 3)} unit="₺" change={usd.change} accent="#6366f1" />}
+        {eur && <HeroCard label="Euro" sub="EUR/TRY" value={fmtN(eur.rate, 3)} unit="₺" change={eur.change} accent="#3b82f6" />}
+        {gbp && <HeroCard label="İngiliz Sterlini" sub="GBP/TRY" value={fmtN(gbp.rate, 3)} unit="₺" change={gbp.change} accent="#8b5cf6" />}
+        {gold && <HeroCard label="Altın" sub="gram · TRY" value={fmtN(gold.priceTRY)} unit="₺" change={gold.change} accent="#f59e0b" />}
+        {btc && <HeroCard label="Bitcoin" sub="BTC/USD" value={`$${fmtCompact(btc.priceUSD)}`} unit="" change={btc.change} accent="#f97316" />}
+      </div>
+
+      {/* ── Main body: tab panel + news ──────────────────────────────── */}
+      <div className="flex flex-1 min-h-0 gap-3 px-4 pb-2 overflow-hidden">
+        {/* Left: category tabs */}
+        <div className="flex-1 min-w-0 flex flex-col gap-2 overflow-hidden">
+          {/* Tab bar */}
+          <div className="flex gap-1 flex-shrink-0">
+            {(['doviz', 'emtia', 'kripto'] as const).map((tab) => {
+              const labels: Record<string, string> = { doviz: '💱 Döviz', emtia: '🏅 Emtia', kripto: '₿ Kripto' };
+              return (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className="px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all"
+                  style={activeTab === tab
+                    ? { background: `${primaryColor}25`, color: primaryColor, border: `1px solid ${primaryColor}40` }
+                    : { background: 'rgba(255,255,255,0.03)', color: 'rgba(255,255,255,0.35)', border: '1px solid rgba(255,255,255,0.07)' }
+                  }
+                >
+                  {labels[tab]}
+                </button>
+              );
+            })}
+          </div>
+          {/* Panel */}
+          <div className="flex-1 min-h-0 overflow-hidden relative">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeTab}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.3 }}
+                className="absolute inset-0 overflow-y-auto"
+                style={{ scrollbarWidth: 'none' }}
+              >
+                {activeTab === 'doviz' && <DovizPanel />}
+                {activeTab === 'emtia' && <EmtiaPanel />}
+                {activeTab === 'kripto' && <KriptoPanel />}
+              </motion.div>
+            </AnimatePresence>
+          </div>
+        </div>
+
+        {/* Right: full market table + news */}
+        <div className="w-72 flex-shrink-0 flex flex-col gap-2 overflow-hidden">
+          {/* All items compact table */}
+          <div
+            className="rounded-xl overflow-hidden flex-shrink-0"
+            style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.06)' }}
+          >
+            <div className="px-3 py-2 flex items-center justify-between" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+              <span className="text-[10px] font-bold tracking-[0.18em] uppercase" style={{ color: primaryColor }}>Tüm Piyasalar</span>
+              <span className="text-white/25 text-[9px] tabular-nums">
+                {lastUpdate.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              </span>
+            </div>
+            <div className="divide-y divide-white/[0.04]">
+              {[
+                ...(m?.currencies ?? []).map(c => ({
+                  code: c.code, label: c.name, value: `${fmtN(c.rate, 3)} ₺`, change: c.change,
+                })),
+                ...(m?.metals ?? []).map(x => ({
+                  code: x.code, label: x.name, value: `${fmtN(x.priceTRY)} ₺`, change: x.change,
+                })),
+                ...(m?.crypto ?? []).map(c => ({
+                  code: c.code, label: c.name, value: `$${fmtCompact(c.priceUSD)}`, change: c.change,
+                })),
+              ].map((row) => (
+                <div
+                  key={row.code}
+                  className="flex items-center justify-between px-3 py-1.5 transition-colors"
+                  style={{ backgroundColor: flashBg(row.code) }}
+                >
+                  <span className="text-white/55 text-[11px] font-medium">{row.label}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-white/90 text-[11px] font-semibold tabular-nums" style={{ fontFamily: 'monospace' }}>{row.value}</span>
+                    {row.change != null && (
+                      <span className={`text-[10px] font-semibold tabular-nums w-12 text-right ${chgColor(row.change)}`}>
+                        {row.change > 0 ? '▲' : '▼'} {Math.abs(row.change).toFixed(2)}%
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* News */}
+          {news && news.length > 0 && (
+            <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-1.5" style={{ scrollbarWidth: 'none' }}>
+              <p className="text-[10px] font-bold tracking-[0.18em] uppercase text-white/30 px-1 pb-0.5 flex-shrink-0">📰 Gündem</p>
+              {news.slice(0, 10).map((item: any, i: number) => (
+                <div
+                  key={item.id ?? i}
+                  className="rounded-xl p-2.5 flex-shrink-0"
+                  style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
+                >
+                  <p className="text-white/75 text-[11px] font-medium leading-snug line-clamp-2">{item.title}</p>
+                  <p className="text-white/25 text-[9px] mt-1">{item.source}</p>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
-      {/* Main content */}
-      <div className="flex flex-1 min-h-0 gap-3 p-3 overflow-hidden">
-        {/* Market panel */}
-        <div className="flex-1 min-h-0 overflow-auto">
-          <MarketWidget variant="panel" markets={markets} primaryColor={primaryColor} />
-        </div>
-        {/* News sidebar */}
-        {news && news.length > 0 && (
+
+      {/* ── Scrolling ticker ──────────────────────────────────────────── */}
+      <div className="flex-shrink-0">
+        {tickers && tickers.length > 0 ? (
+          <TickerFooter tickers={tickers} primaryColor={primaryColor} />
+        ) : (
+          /* Market ticker when no ticker messages */
           <div
-            className="w-80 flex-shrink-0 flex flex-col gap-2 overflow-y-auto"
-            style={{ scrollbarWidth: 'none' }}
+            className="relative flex items-center overflow-hidden h-8 text-[11px]"
+            style={{ background: 'rgba(2,8,23,0.95)', borderTop: '1px solid rgba(255,255,255,0.05)' }}
           >
-            <p className="text-[10px] font-bold tracking-[0.2em] uppercase text-white/30 px-1 pb-1">Gündem</p>
-            {news.slice(0, 12).map((item: any, i: number) => (
-              <div
-                key={item.id ?? i}
-                className="rounded-xl p-3"
-                style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
-              >
-                <p className="text-white/80 text-xs font-medium leading-snug line-clamp-3">{item.title}</p>
-                <p className="text-white/30 text-[10px] mt-1.5">{item.source}</p>
+            <div
+              className="flex-shrink-0 flex items-center gap-1.5 px-3 h-full font-bold tracking-widest uppercase text-[9px]"
+              style={{ background: `${primaryColor}15`, color: primaryColor, borderRight: `1px solid ${primaryColor}25` }}
+            >
+              📈 PİYASA
+            </div>
+            {m && (
+              <div className="flex-1 overflow-hidden relative">
+                <motion.div
+                  animate={{ x: ['0%', '-50%'] }}
+                  transition={{ duration: 30, ease: 'linear', repeat: Infinity }}
+                  className="flex whitespace-nowrap gap-10 text-white/60 tabular-nums"
+                  style={{ fontFamily: 'monospace' }}
+                >
+                  {[...Array(2)].map((_, idx) => (
+                    <span key={idx} className="flex gap-10">
+                      {m.currencies.map(c => <span key={c.code}>💱 {c.code} {fmtN(c.rate, 3)} ₺</span>)}
+                      {m.metals.map(x => <span key={x.code}>🏅 {x.name} {fmtN(x.priceTRY)} ₺</span>)}
+                      {m.crypto.map(c => <span key={c.code}>₿ {c.code} ${fmtCompact(c.priceUSD)}</span>)}
+                    </span>
+                  ))}
+                </motion.div>
               </div>
-            ))}
+            )}
           </div>
         )}
       </div>
-      <TickerFooter tickers={tickers} primaryColor={primaryColor} />
     </div>
   );
 }

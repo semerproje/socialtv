@@ -1,8 +1,6 @@
-import openai from '@/lib/openai';
+import gemini, { GEMINI_MODEL } from '@/lib/gemini';
 import { prisma } from '@/lib/prisma';
 import type { AIContentAnalysis, AIAdGenerationRequest, AIChatMessage, TextAdContent } from '@/types';
-
-const AI_MODEL = 'gpt-4o';
 
 // ─── Helper: Log AI request ────────────────────────────────────────────────────
 async function logAIRequest(
@@ -14,11 +12,40 @@ async function logAIRequest(
 ) {
   try {
     await prisma.aIRequest.create({
-      data: { type, prompt, response, model: AI_MODEL, tokensUsed, durationMs },
+      data: { type, prompt, response, model: GEMINI_MODEL, tokensUsed, durationMs },
     });
   } catch {
     // Non-critical
   }
+}
+
+// ─── Helper: Generate JSON via Gemini ─────────────────────────────────────────
+async function generateJSON<T>(prompt: string): Promise<{ result: T; raw: string; tokenCount?: number }> {
+  const model = gemini.getGenerativeModel({
+    model: GEMINI_MODEL,
+    generationConfig: { responseMimeType: 'application/json' },
+  });
+  const res = await model.generateContent(prompt);
+  const raw = res.response.text();
+  // usageMetadata is optional
+  const tokenCount = (res.response as unknown as Record<string, unknown>).usageMetadata
+    ? ((res.response as unknown as Record<string, unknown>).usageMetadata as Record<string, number>).totalTokenCount
+    : undefined;
+  return { result: JSON.parse(raw) as T, raw, tokenCount };
+}
+
+// ─── Helper: Generate text via Gemini ─────────────────────────────────────────
+async function generateText(prompt: string, systemInstruction?: string): Promise<{ text: string; tokenCount?: number }> {
+  const model = gemini.getGenerativeModel({
+    model: GEMINI_MODEL,
+    ...(systemInstruction ? { systemInstruction } : {}),
+  });
+  const res = await model.generateContent(prompt);
+  const text = res.response.text();
+  const tokenCount = (res.response as unknown as Record<string, unknown>).usageMetadata
+    ? ((res.response as unknown as Record<string, unknown>).usageMetadata as Record<string, number>).totalTokenCount
+    : undefined;
+  return { text, tokenCount };
 }
 
 // ─── Analyze Content ──────────────────────────────────────────────────────────
@@ -39,38 +66,25 @@ export async function analyzeContent(text: string): Promise<AIContentAnalysis> {
 
 Sadece geçerli JSON döndür, başka açıklama ekleme.`;
 
-  const response = await openai.chat.completions.create({
-    model: AI_MODEL,
-    messages: [{ role: 'user', content: prompt }],
-    response_format: { type: 'json_object' },
-    temperature: 0.3,
-    max_tokens: 500,
-  });
-
-  const rawJson = response.choices[0]?.message?.content ?? '{}';
-  const result = JSON.parse(rawJson) as AIContentAnalysis;
-  const durationMs = Date.now() - start;
-
-  await logAIRequest('analyze_content', prompt, rawJson, response.usage?.total_tokens, durationMs);
+  const { result, raw, tokenCount } = await generateJSON<AIContentAnalysis>(prompt);
+  await logAIRequest('analyze_content', prompt, raw, tokenCount, Date.now() - start);
   return result;
 }
 
 // ─── Moderate Content ─────────────────────────────────────────────────────────
 export async function moderateContent(text: string): Promise<{ passed: boolean; reason?: string }> {
   try {
-    const response = await openai.moderations.create({ input: text });
-    const result = response.results[0];
+    const prompt = `Aşağıdaki içeriği incele ve bir lounge/bar dijital ekranında yayınlamak için uygun olup olmadığını belirle.
+JSON formatında yanıt ver: { "passed": boolean, "reason": string | null }
+Nefret söylemi, şiddet, müstehcenlik veya aşırı siyasi içerik varsa passed=false.
 
-    if (result.flagged) {
-      const categories = Object.entries(result.categories)
-        .filter(([, flagged]) => flagged)
-        .map(([cat]) => cat)
-        .join(', ');
-      return { passed: false, reason: `İçerik uygunsuz kategorilerde işaretlendi: ${categories}` };
-    }
-    return { passed: true };
+İçerik: "${text}"
+
+Sadece JSON döndür.`;
+    const { result } = await generateJSON<{ passed: boolean; reason?: string }>(prompt);
+    return result;
   } catch {
-    return { passed: true }; // On API error, allow content (fail open)
+    return { passed: true }; // Fail open on error
   }
 }
 
@@ -94,19 +108,8 @@ JSON formatında şu alanları doldur:
 
 Sadece JSON döndür.`;
 
-  const response = await openai.chat.completions.create({
-    model: AI_MODEL,
-    messages: [{ role: 'user', content: prompt }],
-    response_format: { type: 'json_object' },
-    temperature: 0.8,
-    max_tokens: 300,
-  });
-
-  const rawJson = response.choices[0]?.message?.content ?? '{}';
-  const result = JSON.parse(rawJson) as TextAdContent;
-  const durationMs = Date.now() - start;
-
-  await logAIRequest('generate_ad', prompt, rawJson, response.usage?.total_tokens, durationMs);
+  const { result, raw, tokenCount } = await generateJSON<TextAdContent>(prompt);
+  await logAIRequest('generate_ad', prompt, raw, tokenCount, Date.now() - start);
   return result;
 }
 
@@ -117,73 +120,52 @@ export async function aiChat(
 ): Promise<string> {
   const start = Date.now();
 
-  const systemPrompt = `Sen Social Lounge TV için profesyonel bir dijital tabela asistanısın. 
+  const systemInstruction = `Sen Social Lounge TV için profesyonel bir dijital tabela asistanısın.
 Türkçe yanıt ver. Kısa ve pratik cevaplar ver.
 Reklam yönetimi, içerik moderasyonu, ekran düzeni ve lounge pazarlaması konularında uzmansın.
 ${systemContext ? `\nMevcut bağlam:\n${systemContext}` : ''}`;
 
-  const response = await openai.chat.completions.create({
-    model: AI_MODEL,
-    messages: [
-      { role: 'system', content: systemPrompt },
-      ...messages,
-    ],
-    temperature: 0.7,
-    max_tokens: 800,
+  // Build conversation history for Gemini multi-turn chat
+  const model = gemini.getGenerativeModel({
+    model: GEMINI_MODEL,
+    systemInstruction,
   });
 
-  const reply = response.choices[0]?.message?.content ?? 'Yanıt alınamadı.';
-  const durationMs = Date.now() - start;
-  const lastMsg = messages[messages.length - 1]?.content ?? '';
-  await logAIRequest('chat', lastMsg, reply, response.usage?.total_tokens, durationMs);
+  const chat = model.startChat({
+    history: messages.slice(0, -1).map((m) => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: m.content }],
+    })),
+  });
 
+  const lastMessage = messages[messages.length - 1]?.content ?? '';
+  const res = await chat.sendMessage(lastMessage);
+  const reply = res.response.text();
+  const tokenCount = (res.response as unknown as Record<string, unknown>).usageMetadata
+    ? ((res.response as unknown as Record<string, unknown>).usageMetadata as Record<string, number>).totalTokenCount
+    : undefined;
+
+  await logAIRequest('chat', lastMessage, reply, tokenCount, Date.now() - start);
   return reply;
 }
 
 // ─── Generate Content Suggestion ──────────────────────────────────────────────
 export async function generateContentSuggestion(context: string): Promise<string> {
   const start = Date.now();
-
-  const response = await openai.chat.completions.create({
-    model: AI_MODEL,
-    messages: [
-      {
-        role: 'system',
-        content:
-          'Sen bir lounge/bar için sosyal medya içerik uzmanısın. Türkçe, etkileyici ve kısa içerikler yaz. Emoji kullanabilirsin.',
-      },
-      {
-        role: 'user',
-        content: `Şu konu için kısa ve etkileyici bir sosyal medya paylaşımı oluştur:\n${context}\n\nMaks 150 karakter. Direkt paylaşıma hazır metin yaz.`,
-      },
-    ],
-    temperature: 0.9,
-    max_tokens: 200,
-  });
-
-  const reply = response.choices[0]?.message?.content ?? '';
-  await logAIRequest('generate_content', context, reply, response.usage?.total_tokens, Date.now() - start);
-  return reply;
+  const { text, tokenCount } = await generateText(
+    `Şu konu için kısa ve etkileyici bir sosyal medya paylaşımı oluştur:\n${context}\n\nMaks 150 karakter. Direkt paylaşıma hazır metin yaz. Emoji kullanabilirsin.`,
+    'Sen bir lounge/bar için sosyal medya içerik uzmanısın. Türkçe, etkileyici ve kısa içerikler yaz.',
+  );
+  await logAIRequest('generate_content', context, text, tokenCount, Date.now() - start);
+  return text;
 }
 
 // ─── Smart Ad Scheduling Suggestion ───────────────────────────────────────────
 export async function suggestAdSchedule(adTitle: string, stats: string): Promise<string> {
-  const response = await openai.chat.completions.create({
-    model: AI_MODEL,
-    messages: [
-      {
-        role: 'system',
-        content:
-          'Sen bir dijital tabela optimizasyon uzmanısın. Lounge reklamlarının ne zaman yayınlanması gerektiği konusunda kısa, pratik Türkçe öneriler ver.',
-      },
-      {
-        role: 'user',
-        content: `Reklam: "${adTitle}"\n\nMevcut analitik:\n${stats}\n\nBu reklam için en iyi yayın zamanını ve günlerini 2-3 cümle ile öner.`,
-      },
-    ],
-    temperature: 0.4,
-    max_tokens: 200,
-  });
-
-  return response.choices[0]?.message?.content ?? 'Öneri oluşturulamadı.';
+  const { text } = await generateText(
+    `Reklam: "${adTitle}"\n\nMevcut analitik:\n${stats}\n\nBu reklam için en iyi yayın zamanını ve günlerini 2-3 cümle ile öner.`,
+    'Sen bir dijital tabela optimizasyon uzmanısın. Lounge reklamlarının ne zaman yayınlanması gerektiği konusunda kısa, pratik Türkçe öneriler ver.',
+  );
+  return text || 'Öneri oluşturulamadı.';
 }
+

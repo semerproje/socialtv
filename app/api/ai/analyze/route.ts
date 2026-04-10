@@ -16,9 +16,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'text is required' }, { status: 400 });
     }
 
-    if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === 'sk-your-key-here') {
+    if (!process.env.GEMINI_API_KEY) {
       return NextResponse.json(
-        { success: false, error: 'OpenAI API key yapılandırılmamış.' },
+        { success: false, error: 'Gemini API key yapılandırılmamış. GEMINI_API_KEY ortam değişkenini ayarlayın.' },
         { status: 503 },
       );
     }
