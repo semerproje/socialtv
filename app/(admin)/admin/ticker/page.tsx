@@ -7,12 +7,18 @@ import { cn } from '@/lib/utils';
 
 const EMOJIS = ['📢', '🎉', '🎵', '🍹', '⭐', '🔥', '📶', '📞', '🎊', '💡', '🎯', '🏆'];
 
+const TAGS = ['Spor', 'Haber', 'Promosyon', 'Duyuru', 'Müzik', 'Etkinlik'];
+
 const emptyForm = {
   text: '',
   emoji: '📢',
   isActive: true,
   priority: 5,
   color: '#f8fafc',
+  scheduleActive: false,
+  startHour: 9,
+  endHour: 22,
+  tags: [] as string[],
 };
 
 export default function TickerPage() {
@@ -38,12 +44,16 @@ export default function TickerPage() {
   const handleSave = async () => {
     setSaving(true);
     try {
+      const { scheduleActive, startHour, endHour, tags, ...rest } = form;
+      const scheduleJson = scheduleActive
+        ? JSON.stringify({ startHour, endHour })
+        : null;
       const url = editingId ? `/api/ticker/${editingId}` : '/api/ticker';
       const method = editingId ? 'PUT' : 'POST';
       const res = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...rest, scheduleJson, tags: tags.length > 0 ? JSON.stringify(tags) : null }),
       });
       if (res.ok) {
         toast.success(editingId ? 'Güncellendi' : 'Ticker eklendi');
@@ -140,6 +150,47 @@ export default function TickerPage() {
                 <input type="range" min={1} max={10} value={form.priority} className="w-full accent-indigo-500 mt-2" onChange={(e) => setForm({ ...form, priority: Number(e.target.value) })} />
               </div>
             </div>
+
+            {/* Tags */}
+            <div>
+              <label className="text-xs text-tv-muted mb-1.5 block">Etiketler</label>
+              <div className="flex gap-1.5 flex-wrap">
+                {TAGS.map((tag) => (
+                  <button
+                    key={tag}
+                    onClick={() => setForm((f) => ({ ...f, tags: f.tags.includes(tag) ? f.tags.filter((t) => t !== tag) : [...f.tags, tag] }))}
+                    className={cn('px-2.5 py-1 rounded-lg text-xs font-medium transition-colors', form.tags.includes(tag) ? 'bg-indigo-500 text-white' : 'bg-white/5 text-tv-muted hover:bg-white/10')}
+                  >
+                    {tag}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Time Schedule */}
+            <div className="rounded-xl p-3 space-y-2" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium text-tv-text flex items-center gap-1.5">🕐 Saat Aralığı</p>
+                <button
+                  onClick={() => setForm((f) => ({ ...f, scheduleActive: !f.scheduleActive }))}
+                  className={cn('w-9 h-5 rounded-full transition-colors relative', form.scheduleActive ? 'bg-indigo-500' : 'bg-white/10')}
+                >
+                  <div className={cn('absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all', form.scheduleActive ? 'right-0.5' : 'left-0.5')} />
+                </button>
+              </div>
+              {form.scheduleActive && (
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-xs text-tv-muted mb-1 block">Başlangıç</label>
+                    <input type="number" min={0} max={23} className="input-field text-sm" value={form.startHour} onChange={(e) => setForm((f) => ({ ...f, startHour: Number(e.target.value) }))} />
+                  </div>
+                  <div>
+                    <label className="text-xs text-tv-muted mb-1 block">Bitiş</label>
+                    <input type="number" min={0} max={23} className="input-field text-sm" value={form.endHour} onChange={(e) => setForm((f) => ({ ...f, endHour: Number(e.target.value) }))} />
+                  </div>
+                </div>
+              )}
+            </div>
             <div className="flex gap-3">
               <button onClick={() => setShowForm(false)} className="btn-secondary flex-1">İptal</button>
               <button onClick={handleSave} disabled={saving || !form.text} className="btn-primary flex-1 disabled:opacity-50">
@@ -160,14 +211,42 @@ export default function TickerPage() {
               <span className="text-2xl">{ticker.emoji}</span>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-tv-text truncate" style={{ color: ticker.color }}>{ticker.text}</p>
-                <p className="text-xs text-tv-muted">Öncelik: {ticker.priority}</p>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <p className="text-xs text-tv-muted">Öncelik: {ticker.priority}</p>
+                  {(ticker as TickerMessage & { scheduleJson?: string }).scheduleJson && (
+                    <span className="text-xs text-indigo-400">🕐 Planlı</span>
+                  )}
+                  {(ticker as TickerMessage & { tags?: string }).tags && (() => {
+                    try {
+                      const tags = JSON.parse((ticker as TickerMessage & { tags?: string }).tags ?? '');
+                      return Array.isArray(tags) && tags.length > 0
+                        ? tags.map((tag: string) => <span key={tag} className="text-xs px-1.5 py-0.5 rounded-md bg-white/5 text-tv-muted">{tag}</span>)
+                        : null;
+                    } catch { return null; }
+                  })()}
+                </div>
               </div>
               <div className="flex gap-2 flex-shrink-0">
                 <button onClick={() => handleToggle(ticker)}
                   className={cn('text-xs px-2 py-1 rounded-lg transition-colors', ticker.isActive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-white/5 text-tv-muted')}>
                   {ticker.isActive ? '● Aktif' : '○ Pasif'}
                 </button>
-                <button onClick={() => { setForm({ text: ticker.text, emoji: ticker.emoji ?? '📢', isActive: ticker.isActive, priority: ticker.priority, color: ticker.color ?? '#f8fafc' }); setEditingId(ticker.id); setShowForm(true); }}
+                <button onClick={() => {
+                  const t = ticker as TickerMessage & { scheduleJson?: string; tags?: string };
+                  let sched = { active: false, startHour: 9, endHour: 22 };
+                  if (t.scheduleJson) {
+                    try { const p = JSON.parse(t.scheduleJson); sched = { active: true, ...p }; } catch { /**/ }
+                  }
+                  let parsedTags: string[] = [];
+                  if (t.tags) { try { parsedTags = JSON.parse(t.tags); } catch { /**/ } }
+                  setForm({
+                    text: ticker.text, emoji: ticker.emoji ?? '📢', isActive: ticker.isActive,
+                    priority: ticker.priority, color: ticker.color ?? '#f8fafc',
+                    scheduleActive: sched.active, startHour: sched.startHour, endHour: sched.endHour,
+                    tags: parsedTags,
+                  });
+                  setEditingId(ticker.id); setShowForm(true);
+                }}
                   className="p-1.5 rounded-lg hover:bg-white/10 text-tv-muted text-sm">✏️</button>
                 <button onClick={() => handleDelete(ticker.id)} className="p-1.5 rounded-lg hover:bg-red-500/10 text-tv-muted hover:text-red-400 text-sm">🗑️</button>
               </div>

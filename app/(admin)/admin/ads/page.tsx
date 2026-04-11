@@ -51,6 +51,11 @@ export default function AdsPage() {
   const [saving, setSaving] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [scheduleEnabled, setScheduleEnabled] = useState(false);
+  const [scheduleDays, setScheduleDays] = useState<number[]>([]);
+  const [scheduleStartHour, setScheduleStartHour] = useState(9);
+  const [scheduleEndHour, setScheduleEndHour] = useState(22);
 
   const fetchAds = useCallback(async () => {
     try {
@@ -68,6 +73,10 @@ export default function AdsPage() {
     setForm(emptyForm);
     setTextContent(emptyTextContent);
     setEditingId(null);
+    setScheduleEnabled(false);
+    setScheduleDays([]);
+    setScheduleStartHour(9);
+    setScheduleEndHour(22);
     setShowForm(true);
   };
 
@@ -75,6 +84,19 @@ export default function AdsPage() {
     let tc = emptyTextContent;
     if (ad.type === 'text') {
       try { tc = JSON.parse(ad.content) as TextAdContent; } catch { /**/ }
+    }
+    // Parse schedule
+    if (ad.scheduleJson) {
+      try {
+        const s = JSON.parse(ad.scheduleJson);
+        setScheduleEnabled(true);
+        setScheduleDays(s.days ?? []);
+        setScheduleStartHour(s.startHour ?? 9);
+        setScheduleEndHour(s.endHour ?? 22);
+      } catch { setScheduleEnabled(false); }
+    } else {
+      setScheduleEnabled(false);
+      setScheduleDays([]);
     }
     setTextContent(tc);
     setForm({
@@ -122,7 +144,10 @@ export default function AdsPage() {
     setSaving(true);
     try {
       const finalContent = form.type === 'text' ? JSON.stringify(textContent) : form.content;
-      const body = { ...form, content: finalContent };
+      const scheduleJson = scheduleEnabled && scheduleDays.length > 0
+        ? JSON.stringify({ days: scheduleDays, startHour: scheduleStartHour, endHour: scheduleEndHour })
+        : null;
+      const body = { ...form, content: finalContent, scheduleJson };
 
       const url = editingId ? `/api/ads/${editingId}` : '/api/ads';
       const method = editingId ? 'PUT' : 'POST';
@@ -172,6 +197,39 @@ export default function AdsPage() {
     }
   };
 
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const n = new Set(prev);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+  };
+
+  const bulkSetActive = async (isActive: boolean) => {
+    await Promise.all(
+      [...selectedIds].map((id) =>
+        fetch(`/api/ads/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ isActive }),
+        }),
+      ),
+    );
+    toast.success(isActive ? `${selectedIds.size} reklam yayına alındı` : `${selectedIds.size} reklam durduruldu`);
+    setSelectedIds(new Set());
+    fetchAds();
+  };
+
+  const bulkDelete = async () => {
+    if (!confirm(`${selectedIds.size} reklamı silmek istediğinize emin misiniz?`)) return;
+    await Promise.all([...selectedIds].map((id) => fetch(`/api/ads/${id}`, { method: 'DELETE' })));
+    toast.success(`${selectedIds.size} reklam silindi`);
+    setSelectedIds(new Set());
+    fetchAds();
+  };
+
+  const DAY_NAMES = ['Paz', 'Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt'];
+
   return (
     <div className="p-8 space-y-6">
       {/* Header */}
@@ -186,6 +244,27 @@ export default function AdsPage() {
           + Yeni Reklam
         </button>
       </div>
+
+      {/* Bulk Toolbar */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-indigo-500/30 bg-indigo-500/10">
+          <span className="text-sm text-indigo-300 font-medium">{selectedIds.size} seçildi</span>
+          <div className="flex gap-2 ml-auto">
+            <button onClick={() => bulkSetActive(true)} className="btn-secondary text-xs py-1.5 px-3 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10">
+              ▶ Aktifleştir
+            </button>
+            <button onClick={() => bulkSetActive(false)} className="btn-secondary text-xs py-1.5 px-3">
+              ⏸ Pasifleştir
+            </button>
+            <button onClick={bulkDelete} className="btn-secondary text-xs py-1.5 px-3 text-red-400 border-red-500/30 hover:bg-red-500/10">
+              🗑 Sil
+            </button>
+            <button onClick={() => setSelectedIds(new Set())} className="text-xs text-tv-muted hover:text-tv-text px-2">
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Form Modal */}
       {showForm && (
@@ -392,6 +471,65 @@ export default function AdsPage() {
               </div>
             )}
 
+            {/* Time Scheduling */}
+            <div className="rounded-xl p-4 space-y-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-tv-text flex items-center gap-2">🕐 Zaman Planlaması</p>
+                <button
+                  onClick={() => setScheduleEnabled(!scheduleEnabled)}
+                  className={cn('w-10 h-5 rounded-full transition-colors relative', scheduleEnabled ? 'bg-indigo-500' : 'bg-white/10')}
+                >
+                  <div className={cn('absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all', scheduleEnabled ? 'right-0.5' : 'left-0.5')} />
+                </button>
+              </div>
+              {scheduleEnabled && (
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-xs text-tv-muted mb-2">Yayın Günleri</p>
+                    <div className="flex gap-1.5 flex-wrap">
+                      {DAY_NAMES.map((day, i) => (
+                        <button
+                          key={i}
+                          onClick={() => setScheduleDays((prev) => prev.includes(i) ? prev.filter((d) => d !== i) : [...prev, i])}
+                          className={cn(
+                            'px-2.5 py-1 rounded-lg text-xs font-medium transition-colors',
+                            scheduleDays.includes(i) ? 'bg-indigo-500 text-white' : 'bg-white/5 text-tv-muted hover:bg-white/10',
+                          )}
+                        >
+                          {day}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs text-tv-muted mb-1 block">Başlangıç Saati</label>
+                      <input
+                        type="number" min={0} max={23}
+                        className="input-field"
+                        value={scheduleStartHour}
+                        onChange={(e) => setScheduleStartHour(Number(e.target.value))}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-tv-muted mb-1 block">Bitiş Saati</label>
+                      <input
+                        type="number" min={0} max={23}
+                        className="input-field"
+                        value={scheduleEndHour}
+                        onChange={(e) => setScheduleEndHour(Number(e.target.value))}
+                      />
+                    </div>
+                  </div>
+                  <p className="text-xs text-tv-muted">
+                    {scheduleDays.length > 0
+                      ? `${scheduleDays.map((d) => DAY_NAMES[d]).join(', ')} · ${scheduleStartHour}:00 – ${scheduleEndHour}:00`
+                      : 'Gün seçilmedi — tüm günler gösterilir'}
+                  </p>
+                </div>
+              )}
+            </div>
+
             {/* Actions */}
             <div className="flex gap-3 pt-2">
               <button onClick={() => setShowForm(false)} className="btn-secondary flex-1">
@@ -432,7 +570,10 @@ export default function AdsPage() {
           {ads.map((ad) => (
             <div
               key={ad.id}
-              className="admin-card relative overflow-hidden hover:border-white/20 transition-colors"
+              className={cn(
+                'admin-card relative overflow-hidden hover:border-white/20 transition-colors',
+                selectedIds.has(ad.id) && 'border-indigo-500/40 bg-indigo-500/[0.05]',
+              )}
             >
               {/* Priority stripe */}
               <div
@@ -443,18 +584,29 @@ export default function AdsPage() {
               <div className="ml-3">
                 {/* Header */}
                 <div className="flex items-start justify-between gap-3 mb-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h3 className="font-semibold text-tv-text truncate">{ad.title}</h3>
-                      {ad.aiGenerated && (
-                        <span className="badge badge-primary text-[10px] flex-shrink-0">AI</span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="badge badge-muted capitalize">{ad.type}</span>
-                      <span className={cn('badge', ad.isActive ? 'badge-success' : 'badge-danger')}>
-                        {ad.isActive ? 'Aktif' : 'Durduruldu'}
-                      </span>
+                  <div className="flex items-start gap-2 flex-1 min-w-0">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(ad.id)}
+                      onChange={() => toggleSelect(ad.id)}
+                      className="mt-0.5 accent-indigo-500 flex-shrink-0 cursor-pointer"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="font-semibold text-tv-text truncate">{ad.title}</h3>
+                        {ad.aiGenerated && (
+                          <span className="badge badge-primary text-[10px] flex-shrink-0">AI</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="badge badge-muted capitalize">{ad.type}</span>
+                        <span className={cn('badge', ad.isActive ? 'badge-success' : 'badge-danger')}>
+                          {ad.isActive ? 'Aktif' : 'Durduruldu'}
+                        </span>
+                        {ad.scheduleJson && (
+                          <span className="badge badge-muted">🕐 Planlı</span>
+                        )}
+                      </div>
                     </div>
                   </div>
                   <div className="flex gap-1 flex-shrink-0">
@@ -479,6 +631,22 @@ export default function AdsPage() {
                     </button>
                   </div>
                 </div>
+
+                {/* Performance bar */}
+                {ad.impressions > 0 && (
+                  <div className="mb-3">
+                    <div className="flex justify-between text-xs text-tv-muted mb-1">
+                      <span>{formatNumber(ad.impressions)} gösterim</span>
+                      <span>%{Math.round((ad.completions / ad.impressions) * 100)} tamamlanma</span>
+                    </div>
+                    <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-indigo-500 transition-all duration-500"
+                        style={{ width: `${Math.min(100, Math.round((ad.completions / ad.impressions) * 100))}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
 
                 {/* Stats */}
                 <div className="grid grid-cols-3 gap-3 pt-3 border-t border-white/[0.05]">

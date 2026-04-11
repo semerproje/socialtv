@@ -35,6 +35,7 @@ export default function ContentPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiAnalyzing, setAiAnalyzing] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const fetchContent = useCallback(async () => {
     try {
@@ -160,6 +161,46 @@ export default function ContentPage() {
     return null;
   };
 
+  const calcScore = (item: Content): number => {
+    const eng = Math.min(60, ((item.likes ?? 0) + (item.comments ?? 0) * 2 + (item.shares ?? 0) * 3) / 10);
+    const featBonus = item.isFeatured ? 20 : 0;
+    const aiBonus = item.isHighlight ? 10 : 0;
+    const appBonus = item.isApproved ? 10 : 0;
+    return Math.min(100, Math.round(eng + featBonus + aiBonus + appBonus));
+  };
+
+  const scoreColor = (s: number) => {
+    if (s >= 70) return '#10b981';
+    if (s >= 40) return '#f59e0b';
+    return '#64748b';
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  };
+
+  const platformCounts = PLATFORMS.reduce<Record<string, number>>((acc, p) => {
+    acc[p] = p === 'all' ? content.length : content.filter((c) => c.platform === p).length;
+    return acc;
+  }, {});
+
+  const bulkApprove = async (value: boolean) => {
+    await Promise.all([...selectedIds].map((id) =>
+      fetch(`/api/content/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ isApproved: value }) }),
+    ));
+    toast.success(value ? `${selectedIds.size} içerik onaylandı` : `${selectedIds.size} içerik reddedildi`);
+    setSelectedIds(new Set());
+    fetchContent();
+  };
+
+  const bulkDelete = async () => {
+    if (!confirm(`${selectedIds.size} içeriği silmek istiyor musunuz?`)) return;
+    await Promise.all([...selectedIds].map((id) => fetch(`/api/content/${id}`, { method: 'DELETE' })));
+    toast.success(`${selectedIds.size} içerik silindi`);
+    setSelectedIds(new Set());
+    fetchContent();
+  };
+
   return (
     <div className="p-8 space-y-6">
       {/* Header */}
@@ -175,6 +216,25 @@ export default function ContentPage() {
         </button>
       </div>
 
+      {/* Bulk Toolbar */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-indigo-500/30 bg-indigo-500/10">
+          <span className="text-sm text-indigo-300 font-medium">{selectedIds.size} seçildi</span>
+          <div className="flex gap-2 ml-auto">
+            <button onClick={() => bulkApprove(true)} className="btn-secondary text-xs py-1.5 px-3 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10">
+              ✓ Onayla
+            </button>
+            <button onClick={() => bulkApprove(false)} className="btn-secondary text-xs py-1.5 px-3">
+              ✕ Reddet
+            </button>
+            <button onClick={bulkDelete} className="btn-secondary text-xs py-1.5 px-3 text-red-400 border-red-500/30 hover:bg-red-500/10">
+              🗑 Sil
+            </button>
+            <button onClick={() => setSelectedIds(new Set())} className="text-xs text-tv-muted hover:text-tv-text px-2">✕</button>
+          </div>
+        </div>
+      )}
+
       {/* Filters */}
       <div className="flex items-center gap-3 flex-wrap">
         {PLATFORMS.map((p) => (
@@ -182,13 +242,21 @@ export default function ContentPage() {
             key={p}
             onClick={() => setFilter(p)}
             className={cn(
-              'px-3 py-1.5 rounded-xl text-xs font-medium border transition-all',
+              'px-3 py-1.5 rounded-xl text-xs font-medium border transition-all flex items-center gap-1.5',
               filter === p
                 ? 'bg-tv-primary text-white border-tv-primary'
                 : 'border-white/10 text-tv-muted hover:text-tv-text hover:border-white/20',
             )}
           >
             {p === 'all' ? '🌐 Tümü' : `${getPlatformIcon(p)} ${p}`}
+            {platformCounts[p] > 0 && (
+              <span className={cn(
+                'text-[10px] px-1.5 py-0.5 rounded-full font-semibold',
+                filter === p ? 'bg-white/20 text-white' : 'bg-white/10 text-tv-muted',
+              )}>
+                {platformCounts[p]}
+              </span>
+            )}
           </button>
         ))}
         <div className="ml-auto flex gap-2">
@@ -307,7 +375,13 @@ export default function ContentPage() {
       ) : (
         <div className="space-y-3">
           {content.map((item) => (
-            <div key={item.id} className="admin-card flex items-start gap-4 hover:border-white/20 transition-colors">
+            <div key={item.id} className={cn('admin-card flex items-start gap-4 hover:border-white/20 transition-colors', selectedIds.has(item.id) && 'border-indigo-500/40 bg-indigo-500/[0.05]')}>
+              <input
+                type="checkbox"
+                checked={selectedIds.has(item.id)}
+                onChange={() => toggleSelect(item.id)}
+                className="mt-1 accent-indigo-500 flex-shrink-0 cursor-pointer"
+              />
               {/* Platform icon */}
               <div
                 className="w-10 h-10 rounded-xl flex items-center justify-center text-lg flex-shrink-0"
@@ -324,6 +398,12 @@ export default function ContentPage() {
                   {item.isFeatured && <span className="badge badge-warning">⭐ Öne Çıkan</span>}
                   {item.isHighlight && <span className="badge badge-primary">🤖 AI</span>}
                   {sentimentBadge(item.sentiment ?? undefined)}
+                  {/* Score badge */}
+                  {(() => { const s = calcScore(item); return s > 0 ? (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold flex-shrink-0" style={{ background: `${scoreColor(s)}20`, color: scoreColor(s), border: `1px solid ${scoreColor(s)}30` }}>
+                      {s}
+                    </span>
+                  ) : null; })()}
                 </div>
                 <p className="text-sm text-tv-text/80 line-clamp-2">{item.text}</p>
                 {item.aiSummary && (
