@@ -47,6 +47,7 @@ export default function MainScreen({ screenId: urlScreenId }: MainScreenProps) {
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const wakeLockRef = useRef<any>(null);
   const lastScheduledEventRef = useRef<string | null>(null);
+  const layoutInitializedRef = useRef(false);
 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'reconnecting' | 'offline'>('reconnecting');
@@ -80,6 +81,12 @@ export default function MainScreen({ screenId: urlScreenId }: MainScreenProps) {
         const json: DisplayData = await res.json();
         setData(json);
         setLoading(false);
+        // Apply settings.layout on first successful load (one-time initialization)
+        if (!layoutInitializedRef.current) {
+          layoutInitializedRef.current = true;
+          const settingsLayout = json.settings?.layout as LayoutType | undefined;
+          if (settingsLayout) setLayout(settingsLayout);
+        }
       }
     } catch { /* keep showing current */ }
   }, []);

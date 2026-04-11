@@ -2,6 +2,7 @@
 
 import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
+import { useState, useEffect } from 'react';
 import type { Content } from '@/types';
 import { getPlatformColor, getPlatformIcon, formatNumber, formatRelative } from '@/lib/utils';
 
@@ -9,6 +10,42 @@ interface SocialFeedProps {
   content: Content[];
   compact?: boolean;
   sidebar?: boolean;
+}
+
+// ─── Sidebar view with auto-rotation ─────────────────────────────────────────
+function SidebarView({ content }: { content: Content[] }) {
+  const MAX_VISIBLE = 4;
+  const [offset, setOffset] = useState(0);
+
+  useEffect(() => {
+    if (content.length <= MAX_VISIBLE) { setOffset(0); return; }
+    const t = setInterval(() => setOffset((o) => (o + 1) % content.length), 4500);
+    return () => clearInterval(t);
+  }, [content.length]);
+
+  const raw = content.slice(offset, offset + MAX_VISIBLE);
+  const items = raw.length < MAX_VISIBLE && content.length > MAX_VISIBLE
+    ? [...raw, ...content.slice(0, MAX_VISIBLE - raw.length)]
+    : raw;
+
+  return (
+    <div className="flex flex-col gap-2.5 h-full overflow-hidden">
+      <AnimatePresence mode="popLayout">
+        {items.map((post, i) => (
+          <motion.div
+            key={`${post.id}-${offset}`}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -12 }}
+            transition={{ duration: 0.35, delay: i * 0.055 }}
+            className="glass-dark rounded-xl p-3.5 flex-1 min-h-0 overflow-hidden"
+          >
+            <SidebarCard post={post} />
+          </motion.div>
+        ))}
+      </AnimatePresence>
+    </div>
+  );
 }
 
 export default function SocialFeed({ content, compact, sidebar }: SocialFeedProps) {
@@ -21,24 +58,7 @@ export default function SocialFeed({ content, compact, sidebar }: SocialFeedProp
   }
 
   if (sidebar) {
-    return (
-      <div className="flex flex-col gap-3 h-full overflow-hidden">
-        <AnimatePresence mode="popLayout">
-          {content.map((post, i) => (
-            <motion.div
-              key={post.id}
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              transition={{ delay: i * 0.08 }}
-              className="glass-dark rounded-xl p-4 flex-1 min-h-0 overflow-hidden"
-            >
-              <SidebarCard post={post} />
-            </motion.div>
-          ))}
-        </AnimatePresence>
-      </div>
-    );
+    return <SidebarView content={content} />;
   }
 
   if (compact) {

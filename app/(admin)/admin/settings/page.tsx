@@ -30,7 +30,12 @@ const SETTING_GROUPS = [
     keys: [
       { key: 'primary_color', label: 'Ana Renk', type: 'color' },
       { key: 'secondary_color', label: 'İkincil Renk', type: 'color' },
-      { key: 'layout', label: 'Düzen', type: 'select', options: ['default', 'portrait', 'minimal'] },
+      { key: 'layout', label: 'Düzen', type: 'select', options: [
+        'default', 'youtube', 'instagram', 'split_2', 'fullscreen',
+        'digital_signage', 'social_wall', 'ambient', 'promo', 'triple',
+        'news_focus', 'portrait', 'markets', 'breaking_news',
+        'event_countdown', 'split_scoreboard',
+      ] },
       { key: 'ticker_speed', label: 'Ticker Hızı (sn)', type: 'number', placeholder: '40' },
     ],
   },

@@ -382,7 +382,7 @@ function DefaultLayout({
         <div className="w-72 flex flex-col gap-3 overflow-hidden flex-shrink-0">
           {qrUrl && <QRWidget url={qrUrl} />}
           <div className="flex-1 min-h-0 overflow-hidden">
-            <SocialFeed content={feedContent} />
+            <SocialFeed content={feedContent.slice(0, 6)} sidebar />
           </div>
         </div>
       </div>
@@ -418,7 +418,7 @@ function YouTubeLayout({
             <ClockWidget compact />
           </div>
           <div className="flex-1 min-h-0 p-3 overflow-hidden">
-            <SocialFeed content={feedContent} compact />
+            <SocialFeed content={feedContent} sidebar />
           </div>
           <div className="px-4 py-3 flex justify-center flex-shrink-0" style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
             <img src="/logo.png" alt="" className="h-5 w-auto object-contain opacity-20" />
@@ -808,7 +808,7 @@ function TripleLayout({
       <div className="flex flex-1 min-h-0 gap-1.5 p-1.5 overflow-hidden">
         {/* Left: social feed */}
         <div className="flex-1 min-w-0 min-h-0 overflow-hidden">
-          <SocialFeed content={feedContent.slice(0, 3)} />
+          <SocialFeed content={feedContent.slice(0, 4)} sidebar />
         </div>
         {/* Center: Instagram */}
         <div className="flex-1 min-w-0 min-h-0 relative overflow-hidden rounded-xl">
@@ -823,7 +823,7 @@ function TripleLayout({
         <div className="flex-1 min-w-0 min-h-0 relative overflow-hidden rounded-xl">
           {youtubeVideo
             ? <YouTubePlayer videoId={youtubeVideo.videoId} title={youtubeVideo.title} muted autoplay loop onEnded={onYouTubeEnded} className="absolute inset-0 w-full h-full" />
-            : <div className="h-full overflow-hidden"><SocialFeed content={feedContent.slice(3)} /></div>
+            : <div className="h-full overflow-hidden"><SocialFeed content={feedContent.slice(3, 8)} sidebar /></div>
           }
         </div>
       </div>
@@ -1576,7 +1576,7 @@ function PortraitLayout({
         <ClockWidget compact />
       </div>
       {/* Instagram big zone */}
-      <div className="relative overflow-hidden" style={{ height: '45%' }}>
+      <div className="relative overflow-hidden flex-[2] min-h-0">
         {instagramPosts.length > 0
           ? <InstagramCarousel posts={instagramPosts} autoSlide slideDuration={igSlideDuration} className="absolute inset-0" />
           : highlight
