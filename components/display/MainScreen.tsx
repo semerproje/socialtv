@@ -42,7 +42,7 @@ export default function MainScreen({ screenId: urlScreenId }: MainScreenProps) {
   const screenIdRef = useRef<string>('');
   const adTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const fetchTimerRef = useRef<ReturnType<typeof setInterval>>();
-  const sseRef = useRef<EventSource | null>(null);
+  const pingTimerRef = useRef<ReturnType<typeof setInterval>>();
   const overlayTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const controlsTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const wakeLockRef = useRef<any>(null);
@@ -211,11 +211,14 @@ export default function MainScreen({ screenId: urlScreenId }: MainScreenProps) {
     const sid = getOrCreateScreenId(urlScreenId ?? null);
     screenIdRef.current = sid;
     setScreenName(localStorage.getItem('screenName') ?? 'Display');
-    // Register screen presence in DB — fire and forget, no SSE needed
-    fetch(`/api/sync?screenId=${encodeURIComponent(sid)}&name=${encodeURIComponent(localStorage.getItem('screenName') ?? 'Display')}`, {
-      method: 'HEAD',
-    }).catch(() => {});
-    return () => { clearTimeout(overlayTimerRef.current); };
+    const screenName = localStorage.getItem('screenName') ?? 'Display';
+    const ping = () => fetch(
+      `/api/sync?screenId=${encodeURIComponent(sid)}&name=${encodeURIComponent(screenName)}`,
+      { method: 'HEAD' },
+    ).catch(() => {});
+    ping();
+    pingTimerRef.current = setInterval(ping, 30_000);
+    return () => { clearInterval(pingTimerRef.current); clearTimeout(overlayTimerRef.current); };
   }, [urlScreenId]);
 
   // ── Firestore realtime listener (primary command channel) ──────────────────

@@ -13,6 +13,9 @@ build/
 .env.local
 .env.*.local
 
+# Firebase build artifacts
+.firebase/
+
 # Firebase service account — contains private keys
 service-account.json
 *service-account*.json

@@ -1,5 +1,6 @@
 import gemini, { GEMINI_MODEL } from '@/lib/gemini';
-import { prisma } from '@/lib/prisma';
+import { adminDb } from '@/lib/firebase-admin';
+import { FieldValue } from 'firebase-admin/firestore';
 import type { AIContentAnalysis, AIAdGenerationRequest, AIChatMessage, TextAdContent } from '@/types';
 
 // ─── Helper: Log AI request ────────────────────────────────────────────────────
@@ -11,8 +12,14 @@ async function logAIRequest(
   durationMs?: number,
 ) {
   try {
-    await prisma.aIRequest.create({
-      data: { type, prompt, response, model: GEMINI_MODEL, tokensUsed, durationMs },
+    await adminDb.collection('ai_requests').add({
+      type,
+      prompt,
+      response,
+      model: GEMINI_MODEL,
+      tokensUsed: tokensUsed ?? null,
+      durationMs: durationMs ?? null,
+      createdAt: FieldValue.serverTimestamp(),
     });
   } catch {
     // Non-critical

@@ -5,7 +5,7 @@ runConfig:
   cpu: 1
   memoryMiB: 512
   concurrency: 80
-  maxInstances: 2
+  maxInstances: 1
   minInstances: 1
   timeoutSeconds: 3600
 
@@ -22,11 +22,6 @@ env:
     value: "245780247646"
   - variable: NEXT_PUBLIC_FIREBASE_APP_ID
     secret: NEXT_PUBLIC_FIREBASE_APP_ID
-  - variable: OPENAI_API_KEY
-    secret: OPENAI_API_KEY
-    availability:
-      - BUILD
-      - RUNTIME
   - variable: GEMINI_API_KEY
     secret: GEMINI_API_KEY
     availability:
@@ -35,3 +30,5 @@ env:
     value: sa@socialtv.com
   - variable: ADMIN_ALLOWED_EMAILS
     value: sa@socialtv.com
+  - variable: NEXT_PUBLIC_APP_URL
+    value: https://socialtv--social-web-tv.europe-west4.hosted.app

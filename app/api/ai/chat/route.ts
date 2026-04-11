@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { aiChat } from '@/lib/ai-engine';
-import { prisma } from '@/lib/prisma';
+import * as db from '@/lib/db';
 import type { AIChatMessage } from '@/types';
 import { enforceRateLimit, requireAdmin } from '@/lib/admin-auth';
 
@@ -32,23 +32,20 @@ export async function POST(request: NextRequest) {
     let context: string | undefined;
     if (includeContext) {
       try {
-        const [adCount, contentCount, activeAds] = await Promise.all([
-          prisma.advertisement.count(),
-          prisma.content.count({ where: { isApproved: true } }),
-          prisma.advertisement.findMany({
-            where: { isActive: true },
-            select: { title: true, priority: true, impressions: true },
-            orderBy: { priority: 'desc' },
-            take: 5,
-          }),
+        const [activeAds, contentCount] = await Promise.all([
+          db.advertisement.findMany({ where: { isActive: true } }),
+          db.content.count({ where: { isApproved: true } }),
         ]);
+        const adCount = activeAds.length;
+        const topAds = activeAds
+          .sort((a, b) => ((b as { priority: number }).priority - (a as { priority: number }).priority))
+          .slice(0, 5);
 
         context = `
 Mevcut sistem durumu:
 - Toplam reklam: ${adCount}
-- Aktif reklamlar: ${activeAds.map((a: { title: string; priority: number; impressions: number }) => `"${a.title}" (öncelik: ${a.priority}, gösterim: ${a.impressions})`).join(', ')}
-- Onaylı içerik sayısı: ${contentCount}
-`;
+- Aktif reklamlar: ${topAds.map((a) => { const ad = a as { title: string; priority: number; impressions: number }; return `"${ad.title}" (öncelik: ${ad.priority}, gösterim: ${ad.impressions})`; }).join(', ')}
+- Onaylı içerik sayısı: ${contentCount}`
       } catch {
         // Continue without context
       }
