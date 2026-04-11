@@ -669,6 +669,84 @@ function ContentCard({ item, selected, onSelect, onApprove, onFeature, onDelete,
   );
 }
 
+// ─── Scene Types ──────────────────────────────────────────────────────────────
+
+interface Scene {
+  id: string;
+  name: string;
+  icon: string;
+  color: string;
+  layout: LayoutType;
+  ticker: { active: boolean; priority?: number };
+  ads: { mode: 'normal' | 'heavy' | 'off' };
+  youtubePlaylistId?: string;
+  broadcastToGroups: string[];
+}
+
+// ─── Create Scene Modal ───────────────────────────────────────────────────────
+
+function CreateSceneModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const [name, setName] = useState('');
+  const [icon, setIcon] = useState('🎭');
+  const [color, setColor] = useState('#6366f1');
+  const [layout, setLayout] = useState<LayoutType>('default');
+  const [saving, setSaving] = useState(false);
+
+  const ICONS = ['🎭','🎉','🌙','☀️','🍸','🎵','🏆','📺','🎬','📡','⚡','🌟'];
+
+  const handleSave = async () => {
+    if (!name.trim()) { toast.error('Sahne adı gerekli'); return; }
+    setSaving(true);
+    try {
+      const res = await fetch('/api/scenes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.trim(), icon, color, layout }),
+      });
+      if (res.ok) { toast.success('Sahne oluşturuldu'); onCreated(); onClose(); }
+      else toast.error('Sahne oluşturulamadı');
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <ModalWrapper onClose={onClose}>
+      <h3 className="text-white font-bold text-lg mb-4">🎭 Yeni Sahne</h3>
+      <div className="space-y-3">
+        <div>
+          <label className="text-xs text-white/50 mb-1 block">Ad <span className="text-indigo-400">*</span></label>
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="Happy Hour, Akşam Yayını…" className="input w-full text-sm" />
+        </div>
+        <div>
+          <label className="text-xs text-white/50 mb-1 block">İkon</label>
+          <div className="flex flex-wrap gap-1.5">
+            {ICONS.map(ic => (
+              <button key={ic} onClick={() => setIcon(ic)}
+                className={cn('w-8 h-8 rounded-lg text-base flex items-center justify-center border transition-all', icon === ic ? 'border-indigo-500/60 bg-indigo-500/15' : 'border-white/10 hover:border-white/25')}
+              >{ic}</button>
+            ))}
+          </div>
+        </div>
+        <div className="flex gap-3">
+          <div className="flex-1">
+            <label className="text-xs text-white/50 mb-1 block">Layout</label>
+            <select value={layout} onChange={e => setLayout(e.target.value as LayoutType)} className="input w-full text-sm">
+              {LAYOUT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.icon} {o.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-white/50 mb-1 block">Renk</label>
+            <input type="color" value={color} onChange={e => setColor(e.target.value)} className="w-10 h-9 rounded cursor-pointer bg-transparent border border-white/15" />
+          </div>
+        </div>
+      </div>
+      <div className="flex gap-3 mt-4">
+        <button onClick={onClose} className="btn-secondary flex-1">İptal</button>
+        <button onClick={handleSave} disabled={saving || !name.trim()} className="btn-primary flex-1">{saving ? 'Kaydediliyor…' : 'Oluştur'}</button>
+      </div>
+    </ModalWrapper>
+  );
+}
+
 // ─── Command Panel (right) ────────────────────────────────────────────────────
 
 function CommandPanel({ screens, channels, activeSchedule, history, onQuickAction, onOverlay, onChannelPlay, onCountdown, connectedCount }: {
@@ -682,6 +760,31 @@ function CommandPanel({ screens, channels, activeSchedule, history, onQuickActio
   onCountdown: () => void;
   connectedCount: number;
 }) {
+  const [scenes, setScenes] = useState<Scene[]>([]);
+  const [activeScene, setActiveScene] = useState<string | null>(null);
+  const [showCreateScene, setShowCreateScene] = useState(false);
+
+  const fetchScenes = useCallback(async () => {
+    try {
+      const res = await fetch('/api/scenes');
+      if (res.ok) { const d = await res.json(); setScenes(d.data ?? []); }
+    } catch { /* silent */ }
+  }, []);
+
+  useEffect(() => { fetchScenes(); }, [fetchScenes]);
+
+  const activateScene = async (scene: Scene) => {
+    setActiveScene(scene.id);
+    try {
+      await fetch('/api/sync/broadcast', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event: 'change_layout', data: { layoutType: scene.layout } }),
+      });
+      toast.success(`🎭 ${scene.name} sahnesi aktif`);
+    } catch { toast.error('Sahne uygulanamadı'); setActiveScene(null); }
+  };
+
   return (
     <aside className="w-72 flex-shrink-0 flex flex-col border-l overflow-y-auto" style={{ borderColor: 'rgba(255,255,255,0.06)', background: '#07090f', scrollbarWidth: 'none' }}>
       {/* Header */}
@@ -693,6 +796,44 @@ function CommandPanel({ screens, channels, activeSchedule, history, onQuickActio
             <span className="text-emerald-400 text-[10px] font-bold tabular-nums">{connectedCount}</span>
           </div>
         </div>
+      </div>
+
+      {/* Scenes */}
+      <div className="p-3 border-b" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-[10px] font-bold tracking-[0.16em] uppercase text-white/30">🎭 Sahneler</p>
+          <button onClick={() => setShowCreateScene(true)} className="text-white/30 hover:text-indigo-400 text-xs transition-colors">+ Yeni</button>
+        </div>
+        {scenes.length === 0 ? (
+          <button onClick={() => setShowCreateScene(true)} className="w-full py-2 rounded-lg border border-dashed border-white/10 text-white/20 text-xs hover:text-white/40 hover:border-white/20 transition-all">
+            + Sahne oluştur
+          </button>
+        ) : (
+          <div className="flex flex-wrap gap-1.5">
+            {scenes.map(s => (
+              <button
+                key={s.id}
+                onClick={() => activateScene(s)}
+                className={cn(
+                  'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs border transition-all',
+                  activeScene === s.id
+                    ? 'text-white font-semibold shadow-sm'
+                    : 'text-white/50 border-white/10 hover:text-white/80 hover:border-white/20'
+                )}
+                style={activeScene === s.id ? { background: `${s.color}20`, borderColor: `${s.color}50`, color: s.color } : {}}
+              >
+                <span>{s.icon}</span>
+                <span>{s.name}</span>
+                {activeScene === s.id && <span className="w-1.5 h-1.5 rounded-full bg-current opacity-70" />}
+              </button>
+            ))}
+          </div>
+        )}
+        {showCreateScene && (
+          <AnimatePresence>
+            <CreateSceneModal onClose={() => setShowCreateScene(false)} onCreated={fetchScenes} />
+          </AnimatePresence>
+        )}
       </div>
 
       {/* Quick Actions */}

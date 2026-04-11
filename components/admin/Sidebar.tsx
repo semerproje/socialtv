@@ -3,9 +3,25 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { collection, query, where, orderBy, limit, onSnapshot, doc, updateDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
 import type { AdminRole } from '@/types';
+
+// ─── Notification types ───────────────────────────────────────────────────────
+
+interface AppNotification {
+  id: string;
+  title: string;
+  body: string;
+  type: 'info' | 'warning' | 'error' | 'success';
+  isRead: boolean;
+  createdAt: string;
+  link?: string;
+}
 
 type NavItem = {
   href: string;
@@ -53,6 +69,7 @@ const NAV: NavGroup[] = [
       { href: '/admin/ai-studio', label: 'AI Studio', icon: '🤖', badge: 'AI', minimumRole: 'editor' },
       { href: '/admin/analytics', label: 'Analitik', icon: '📈', minimumRole: 'viewer' },
       { href: '/admin/monitoring', label: 'Monitoring', icon: '🩺', minimumRole: 'viewer' },
+      { href: '/admin/users', label: 'Kullanıcılar', icon: '👥', minimumRole: 'ops' },
       { href: '/admin/settings', label: 'Ayarlar', icon: '⚙️', minimumRole: 'ops' },
     ],
   },
@@ -76,6 +93,51 @@ export default function Sidebar() {
   const { user, adminRole, signOut } = useAuth();
   const effectiveRole: AdminRole | null = adminRole ?? (user ? 'viewer' : null);
 
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [showNotifs, setShowNotifs] = useState(false);
+  const notifRef = useRef<HTMLDivElement>(null);
+
+  // Firestore real-time listener for unread notifications
+  useEffect(() => {
+    if (!user) return;
+    const q = query(
+      collection(db, 'notifications'),
+      where('isRead', '==', false),
+      orderBy('createdAt', 'desc'),
+      limit(20)
+    );
+    const unsub = onSnapshot(q, snap => {
+      setNotifications(snap.docs.map(d => {
+        const data = d.data();
+        return {
+          id: d.id,
+          title: data.title ?? '',
+          body: data.body ?? '',
+          type: data.type ?? 'info',
+          isRead: data.isRead ?? false,
+          createdAt: data.createdAt?.toDate?.()?.toISOString?.() ?? new Date().toISOString(),
+          link: data.link,
+        } as AppNotification;
+      }));
+    }, () => { /* silent on error */ });
+    return () => unsub();
+  }, [user]);
+
+  // Close notifications dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) setShowNotifs(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const markAllRead = async () => {
+    await Promise.allSettled(notifications.map(n =>
+      updateDoc(doc(db, 'notifications', n.id), { isRead: true })
+    ));
+  };
+
   async function handleLogout() {
     await signOut();
     router.push('/login');
@@ -91,20 +153,80 @@ export default function Sidebar() {
 
   return (
     <aside
-      className="w-64 flex-shrink-0 flex flex-col min-h-screen border-r border-white/[0.06]"
+      className="hidden md:flex w-64 flex-shrink-0 flex-col min-h-screen border-r border-white/[0.06]"
       style={{ background: 'linear-gradient(180deg, #0f172a 0%, #030712 100%)' }}
     >
-      {/* Logo */}
+      {/* Logo + Notification Bell */}
       <div className="p-5 border-b border-white/[0.06]">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl overflow-hidden flex-shrink-0">
             <Image src="/logo.png" alt="Social Lounge" width={36} height={36} className="w-full h-full object-contain" />
           </div>
-          <div>
+          <div className="flex-1 min-w-0">
             <h1 className="text-sm font-bold text-tv-text" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
               Social Lounge
             </h1>
             <p className="text-[11px] text-tv-muted">Admin Panel</p>
+          </div>
+          {/* Notification Bell */}
+          <div className="relative flex-shrink-0" ref={notifRef}>
+            <button
+              onClick={() => setShowNotifs(!showNotifs)}
+              className="relative w-8 h-8 rounded-xl flex items-center justify-center text-white/40 hover:text-white hover:bg-white/8 transition-all"
+            >
+              <span className="text-base leading-none">🔔</span>
+              {notifications.length > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center tabular-nums">
+                  {notifications.length > 9 ? '9+' : notifications.length}
+                </span>
+              )}
+            </button>
+            <AnimatePresence>
+              {showNotifs && (
+                <motion.div
+                  initial={{ opacity: 0, y: -6, scale: 0.97 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -6, scale: 0.97 }}
+                  transition={{ duration: 0.15 }}
+                  className="absolute left-0 top-full mt-1 w-72 rounded-xl border border-white/10 shadow-2xl z-50 overflow-hidden"
+                  style={{ background: '#0b0f1a' }}
+                >
+                  <div className="flex items-center justify-between px-3 py-2.5 border-b border-white/[0.06]">
+                    <p className="text-white/70 text-xs font-semibold">Bildirimler</p>
+                    {notifications.length > 0 && (
+                      <button onClick={markAllRead} className="text-[10px] text-indigo-400 hover:text-indigo-300 transition-colors">Tümünü okundu işaretle</button>
+                    )}
+                  </div>
+                  {notifications.length === 0 ? (
+                    <div className="px-4 py-6 text-center">
+                      <p className="text-2xl mb-2">🎉</p>
+                      <p className="text-white/30 text-xs">Yeni bildirim yok</p>
+                    </div>
+                  ) : (
+                    <div className="max-h-72 overflow-y-auto" style={{ scrollbarWidth: 'none' }}>
+                      {notifications.map(n => {
+                        const typeClr: Record<string, string> = {
+                          error: 'border-l-red-500 bg-red-500/5',
+                          warning: 'border-l-amber-500 bg-amber-500/5',
+                          success: 'border-l-emerald-500 bg-emerald-500/5',
+                          info: 'border-l-indigo-500 bg-indigo-500/5',
+                        };
+                        return (
+                          <div
+                            key={n.id}
+                            className={cn('border-l-2 px-3 py-2.5 border-b border-white/[0.04] cursor-pointer hover:bg-white/3 transition-colors', typeClr[n.type] ?? typeClr.info)}
+                            onClick={() => { if (n.link) router.push(n.link); updateDoc(doc(db, 'notifications', n.id), { isRead: true }); setShowNotifs(false); }}
+                          >
+                            <p className="text-white/80 text-xs font-medium leading-snug">{n.title}</p>
+                            {n.body && <p className="text-white/40 text-[10px] mt-0.5 line-clamp-2">{n.body}</p>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         </div>
       </div>
