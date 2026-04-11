@@ -370,6 +370,41 @@ export const analyticsEvent = {
     }
     return rows.sort((a, b) => a.date.localeCompare(b.date));
   },
+
+  async hourlyBreakdown(since: Date) {
+    const snap = await col('analytics').where('createdAt', '>=', Timestamp.fromDate(since)).get();
+    // map[dayOfWeek][hour] = count
+    const map: number[][] = Array.from({ length: 7 }, () => new Array(24).fill(0));
+    snap.docs.forEach((d) => {
+      const data = d.data();
+      if (data.type !== 'ad_impression' && data.type !== 'content_view') return;
+      const ts = data.createdAt instanceof Timestamp ? data.createdAt.toDate() : new Date();
+      const dow = ts.getDay(); // 0=Sun .. 6=Sat
+      const hour = ts.getHours();
+      map[dow][hour]++;
+    });
+    const rows: { dayOfWeek: number; hour: number; count: number }[] = [];
+    for (let dow = 0; dow < 7; dow++) {
+      for (let h = 0; h < 24; h++) {
+        rows.push({ dayOfWeek: dow, hour: h, count: map[dow][h] });
+      }
+    }
+    return rows;
+  },
+
+  async getByScreen(since: Date) {
+    const snap = await col('analytics').where('createdAt', '>=', Timestamp.fromDate(since)).get();
+    const screenMap: Record<string, { impressions: number; contentViews: number }> = {};
+    snap.docs.forEach((d) => {
+      const data = d.data();
+      const sid = data.screenId as string | undefined;
+      if (!sid) return;
+      if (!screenMap[sid]) screenMap[sid] = { impressions: 0, contentViews: 0 };
+      if (data.type === 'ad_impression') screenMap[sid].impressions++;
+      if (data.type === 'content_view') screenMap[sid].contentViews++;
+    });
+    return screenMap;
+  },
 };
 
 // ─── SystemLog ───────────────────────────────────────────────────────────────

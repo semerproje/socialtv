@@ -10,13 +10,45 @@ export async function GET(request: NextRequest) {
     const days = parseInt(searchParams.get('days') ?? '7');
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-    const [events, topAds, adStats, contentCount, dailyData] = await Promise.all([
+    const [events, allAds, adStats, contentCount, dailyData, hourlyData, allContent] = await Promise.all([
       db.analyticsEvent.groupBy({ since }),
-      db.advertisement.findMany({ orderBy: [{ impressions: 'desc' }], take: 5 }),
+      db.advertisement.findMany({ orderBy: [{ impressions: 'desc' }] }),
       db.advertisement.aggregate(),
       db.content.count({ where: { isApproved: true } }),
       db.analyticsEvent.dailyBreakdown(since),
+      db.analyticsEvent.hourlyBreakdown(since),
+      db.content.findMany({ where: { isApproved: true } }),
     ]);
+
+    // Per-ad CR%
+    const topAds = allAds.slice(0, 5).map((ad: Record<string, unknown>) => ({
+      ...ad,
+      cr: (ad.impressions as number) > 0
+        ? Math.round(((ad.completions as number) / (ad.impressions as number)) * 100)
+        : 0,
+    }));
+    const adPerformance = allAds.map((ad: Record<string, unknown>) => ({
+      id: ad.id,
+      title: ad.title,
+      impressions: ad.impressions as number ?? 0,
+      completions: ad.completions as number ?? 0,
+      totalPlayTime: ad.totalPlayTime as number ?? 0,
+      cr: (ad.impressions as number) > 0
+        ? +((((ad.completions as number) / (ad.impressions as number)) * 100).toFixed(1))
+        : 0,
+    }));
+
+    // Platform + sentiment breakdown from content
+    const platformMap: Record<string, number> = {};
+    const sentimentMap: Record<string, number> = {};
+    for (const c of allContent) {
+      const p = (c.platform as string) ?? 'unknown';
+      platformMap[p] = (platformMap[p] ?? 0) + 1;
+      const s = (c.sentiment as string) ?? 'neutral';
+      sentimentMap[s] = (sentimentMap[s] ?? 0) + 1;
+    }
+    const platformBreakdown = Object.entries(platformMap).map(([platform, count]) => ({ platform, count }));
+    const contentSentiment = Object.entries(sentimentMap).map(([sentiment, count]) => ({ sentiment, count }));
 
     const summary = {
       totalImpressions: adStats._sum.impressions ?? 0,
@@ -26,7 +58,11 @@ export async function GET(request: NextRequest) {
       totalQRScans: events.find((e) => e.type === 'qr_scan')?._count.id ?? 0,
       approvedContent: contentCount,
       topAds,
+      adPerformance,
       dailyData,
+      hourlyData,
+      platformBreakdown,
+      contentSentiment,
     };
 
     return NextResponse.json({ success: true, data: summary });
