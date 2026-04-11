@@ -312,6 +312,7 @@ export default function LayoutManager({
             <NewsFocusLayout
               highlight={highlight}
               feedContent={feedContent}
+              news={data.news}
               {...common}
             />
           )}
@@ -834,43 +835,149 @@ function TripleLayout({
 
 // ─── 11. News Focus ───────────────────────────────────────────────────────────
 function NewsFocusLayout({
-  highlight, feedContent, tickers, weather, primaryColor, secondaryColor, igSlideDuration,
-}: CommonProps & { highlight: any; feedContent: any[] }) {
+  highlight, feedContent, news, tickers, weather, primaryColor, secondaryColor, igSlideDuration,
+}: CommonProps & { highlight: any; feedContent: any[]; news?: import('@/types').NewsItem[] }) {
+  const [newsIdx, setNewsIdx] = useState(0);
+  const liveNews = news && news.length > 0 ? news : null;
+
+  useEffect(() => {
+    if (!liveNews || liveNews.length <= 1) return;
+    const t = setInterval(() => setNewsIdx((i) => (i + 1) % liveNews.length), 6000);
+    return () => clearInterval(t);
+  }, [liveNews?.length]);
+
+  const currentNews = liveNews?.[newsIdx] ?? null;
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Double ticker top */}
+      {/* Top ticker */}
       <div className="flex-shrink-0">
         <TickerFooter tickers={tickers} primaryColor={primaryColor} />
       </div>
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Left branded panel */}
         <div
-          className="w-72 flex-shrink-0 flex flex-col items-center justify-center gap-8 p-8 overflow-hidden"
-          style={{ background: `linear-gradient(180deg, rgba(2,8,23,0.97) 0%, rgba(2,8,23,0.92) 100%)`, borderRight: '1px solid rgba(255,255,255,0.06)' }}
+          className="w-80 flex-shrink-0 flex flex-col overflow-hidden"
+          style={{ background: 'rgba(2,8,23,0.97)', borderRight: '1px solid rgba(255,255,255,0.06)' }}
         >
-          <img src="/logo.png" alt="" className="h-12 w-auto object-contain" />
-          <div
-            className="w-12 h-px"
-            style={{ background: `linear-gradient(90deg, transparent, ${primaryColor}80, transparent)` }}
-          />
-          <div className="text-center">
+          {/* Logo + clock */}
+          <div className="flex flex-col items-center gap-6 p-6 flex-shrink-0">
+            <img src="/logo.png" alt="" className="h-10 w-auto object-contain" />
+            <div className="w-10 h-px" style={{ background: `linear-gradient(90deg, transparent, ${primaryColor}80, transparent)` }} />
             <ClockWidget />
+            {weather && (
+              <>
+                <div className="w-10 h-px" style={{ background: `linear-gradient(90deg, transparent, ${primaryColor}60, transparent)` }} />
+                <WeatherWidget weather={weather} city={weather?.city ?? ''} />
+              </>
+            )}
           </div>
-          {weather && (
-            <>
-              <div className="w-12 h-px" style={{ background: `linear-gradient(90deg, transparent, ${primaryColor}60, transparent)` }} />
-              <WeatherWidget weather={weather} city={weather?.city ?? ''} />
-            </>
+          {/* Live news list */}
+          {liveNews && liveNews.length > 0 && (
+            <div className="flex-1 min-h-0 overflow-hidden px-4 pb-4">
+              <div
+                className="w-full h-px mb-3"
+                style={{ background: `linear-gradient(90deg, transparent, ${primaryColor}40, transparent)` }}
+              />
+              <p
+                className="text-[10px] font-bold tracking-[0.2em] uppercase mb-3"
+                style={{ color: primaryColor }}
+              >
+                📰 Gündem
+              </p>
+              <div className="flex flex-col gap-1.5 overflow-hidden h-full">
+                <AnimatePresence mode="wait">
+                  {liveNews.slice(0, 6).map((item, i) => (
+                    <motion.div
+                      key={item.id}
+                      initial={{ opacity: 0, x: -8 }}
+                      animate={{ opacity: i === newsIdx % 6 ? 1 : 0.45, x: 0 }}
+                      transition={{ duration: 0.35, delay: i * 0.04 }}
+                      className="flex flex-col gap-0.5 px-3 py-2 rounded-xl cursor-default"
+                      style={{
+                        background: i === newsIdx % 6 ? `${primaryColor}15` : 'rgba(255,255,255,0.03)',
+                        border: `1px solid ${i === newsIdx % 6 ? `${primaryColor}30` : 'rgba(255,255,255,0.05)'}`,
+                      }}
+                    >
+                      <p className="text-white/85 text-[11px] font-medium leading-snug line-clamp-2">{item.title}</p>
+                      <p className="text-white/30 text-[10px]">{item.source}</p>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              </div>
+            </div>
           )}
         </div>
         {/* Main content */}
         <div className="flex-1 min-w-0 min-h-0 flex flex-col gap-3 p-4 overflow-hidden">
-          <div className="flex-1 min-h-0 overflow-hidden">
-            {highlight
-              ? <AIHighlight content={highlight} primaryColor={primaryColor} secondaryColor={secondaryColor} />
-              : <div className="h-full glass rounded-2xl flex items-center justify-center"><EmptyState /></div>
-            }
-          </div>
+          {/* Featured news card (when available and in news_focus mode) */}
+          {currentNews && !highlight && (
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={currentNews.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.5 }}
+                className="flex-1 min-h-0 relative overflow-hidden rounded-2xl"
+              >
+                {currentNews.imageUrl ? (
+                  <img src={currentNews.imageUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                ) : (
+                  <div className="absolute inset-0" style={{ background: `linear-gradient(135deg, ${primaryColor}15, rgba(2,8,23,0.95))` }} />
+                )}
+                <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(2,8,23,0.95) 0%, rgba(2,8,23,0.5) 50%, rgba(2,8,23,0.1) 100%)' }} />
+                <div className="absolute bottom-0 left-0 right-0 p-8">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span
+                      className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest"
+                      style={{ background: `${primaryColor}25`, color: primaryColor, border: `1px solid ${primaryColor}35` }}
+                    >
+                      📰 {currentNews.source}
+                    </span>
+                  </div>
+                  <p
+                    className="text-white font-bold leading-tight"
+                    style={{ fontSize: 'clamp(1.2rem, 2.8vw, 2.5rem)', letterSpacing: '-0.015em' }}
+                  >
+                    {currentNews.title}
+                  </p>
+                  {currentNews.description && (
+                    <p className="text-white/55 mt-3" style={{ fontSize: 'clamp(0.75rem, 1.5vw, 1rem)' }}>
+                      {currentNews.description}
+                    </p>
+                  )}
+                </div>
+                {/* Slide dots */}
+                {liveNews && liveNews.length > 1 && (
+                  <div className="absolute bottom-3 right-5 flex gap-1">
+                    {liveNews.slice(0, 8).map((_, i) => (
+                      <div
+                        key={i}
+                        className="rounded-full transition-all duration-300"
+                        style={{
+                          width: i === newsIdx % 8 ? 20 : 6,
+                          height: 4,
+                          background: i === newsIdx % 8 ? primaryColor : 'rgba(255,255,255,0.2)',
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
+              </motion.div>
+            </AnimatePresence>
+          )}
+          {/* Social content highlight (when news absent) */}
+          {highlight && (
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <AIHighlight content={highlight} primaryColor={primaryColor} secondaryColor={secondaryColor} />
+            </div>
+          )}
+          {!currentNews && !highlight && (
+            <div className="flex-1 min-h-0 glass rounded-2xl flex items-center justify-center">
+              <EmptyState />
+            </div>
+          )}
           {feedContent.length > 0 && (
             <div className="h-28 overflow-hidden flex-shrink-0">
               <SocialFeed content={feedContent.slice(0, 3)} compact />

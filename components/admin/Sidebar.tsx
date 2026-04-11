@@ -59,6 +59,7 @@ const NAV: NavGroup[] = [
       { href: '/admin/instagram', label: 'Instagram', icon: '📸', minimumRole: 'editor' },
       { href: '/admin/youtube', label: 'YouTube', icon: '▶️', minimumRole: 'editor' },
       { href: '/admin/content', label: 'Sosyal İçerik', icon: '🖼️', minimumRole: 'editor' },
+      { href: '/admin/news', label: 'Google Haberler', icon: '📰', badge: 'CANLI', minimumRole: 'editor' },
       { href: '/admin/ticker', label: 'Haber Bandı', icon: '📢', minimumRole: 'editor' },
       { href: '/admin/ads', label: 'Reklamlar', icon: '📺', minimumRole: 'editor' },
     ],

@@ -151,6 +151,8 @@ export interface MarketData {
 
 // ─── News Types ───────────────────────────────────────────────────────────────
 
+export type NewsCategory = 'gundem' | 'dunya' | 'ekonomi' | 'teknoloji' | 'spor' | 'eglence' | 'bilim' | 'saglik';
+
 export interface NewsItem {
   id: string;
   title: string;
@@ -158,6 +160,8 @@ export interface NewsItem {
   link: string;
   pubDate: string;
   description?: string;
+  imageUrl?: string;
+  category?: NewsCategory | string;
 }
 
 // ─── Live TV / Broadcast Types ──────────────────────────────────────────────
