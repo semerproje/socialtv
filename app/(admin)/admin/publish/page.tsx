@@ -44,7 +44,8 @@ type ModalState =
   | { type: 'announcement' }
   | { type: 'overlay' }
   | { type: 'channel'; channel: LiveChannel }
-  | { type: 'layout'; screenId: string; screenName: string };
+  | { type: 'layout'; screenId: string; screenName: string }
+  | { type: 'countdown' };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -92,6 +93,9 @@ const LAYOUT_OPTIONS: { value: LayoutType; label: string; icon: string }[] = [
   { value: 'fullscreen',      label: 'Tam Ekran',      icon: '⛶' },
   { value: 'triple',          label: 'Üçlü',           icon: '⊟' },
   { value: 'portrait',        label: 'Dikey',          icon: '▯' },
+  { value: 'breaking_news',   label: 'Son Dakika',     icon: '🔴' },
+  { value: 'event_countdown', label: 'Geri Sayım',     icon: '⏳' },
+  { value: 'split_scoreboard',label: 'Skorbord',       icon: '⚽' },
 ];
 
 // ─── Modal Wrapper ───────────────────────────────────────────────────────────
@@ -403,6 +407,63 @@ function LayoutPickerModal({ screenId, screenName, onClose, onChanged }: { scree
   );
 }
 
+// ─── Countdown Broadcast Modal ───────────────────────────────────────────────
+
+function CountdownBroadcastModal({ screens, onClose, onSent }: { screens: EnrichedScreen[]; onClose: () => void; onSent: (e: BroadcastHistoryEntry) => void }) {
+  const [title, setTitle] = useState('');
+  const [target, setTarget] = useState('');
+  const [bgUrl, setBgUrl] = useState('');
+  const [targetId, setTargetId] = useState('all');
+  const [sending, setSending] = useState(false);
+
+  const handleSend = async () => {
+    if (!title.trim() || !target) { toast.error('Başlık ve hedef tarih gerekli'); return; }
+    setSending(true);
+    try {
+      const settings = { countdown_title: title, countdown_target: new Date(target).toISOString(), ...(bgUrl ? { countdown_bg_url: bgUrl } : {}) };
+      const body: Record<string, unknown> = { event: 'update_settings', data: { settings, layoutType: 'event_countdown' } };
+      if (targetId !== 'all') body.screenId = targetId;
+      const res = await fetch('/api/sync/broadcast', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (res.ok) {
+        toast.success('Geri sayım yayınlandı');
+        onSent({ id: Date.now().toString(), event: 'update_settings', label: `⏳ ${title}`, targetLabel: targetId === 'all' ? 'Tüm Ekranlar' : screens.find(s => s.id === targetId)?.name ?? targetId, sentAt: new Date() });
+        onClose();
+      }
+    } finally { setSending(false); }
+  };
+
+  return (
+    <ModalWrapper onClose={onClose}>
+      <h3 className="text-white font-bold text-lg mb-4">⏳ Geri Sayım Yayını</h3>
+      <div className="space-y-3">
+        <div>
+          <label className="text-xs text-white/50 mb-1 block">Başlık <span className="text-indigo-400">*</span></label>
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Etkinlik başlığı…" className="input w-full text-sm" />
+        </div>
+        <div>
+          <label className="text-xs text-white/50 mb-1 block">Hedef Tarih &amp; Saat <span className="text-indigo-400">*</span></label>
+          <input type="datetime-local" value={target} onChange={(e) => setTarget(e.target.value)} className="input w-full text-sm" />
+        </div>
+        <div>
+          <label className="text-xs text-white/50 mb-1 block">Arka Plan URL (opsiyonel)</label>
+          <input value={bgUrl} onChange={(e) => setBgUrl(e.target.value)} placeholder="https://…" className="input w-full text-sm" />
+        </div>
+        <div>
+          <label className="text-xs text-white/50 mb-1 block">Hedef Ekran</label>
+          <select value={targetId} onChange={(e) => setTargetId(e.target.value)} className="input w-full text-sm">
+            <option value="all">Tüm Ekranlar ({screens.filter(s => s.isOnline).length} aktif)</option>
+            {screens.map(s => <option key={s.id} value={s.id}>{s.name}{!s.isOnline ? ' (çevrimdışı)' : ''}</option>)}
+          </select>
+        </div>
+      </div>
+      <div className="flex gap-3 mt-4">
+        <button onClick={onClose} className="btn-secondary flex-1">İptal</button>
+        <button onClick={handleSend} disabled={sending || !title.trim() || !target} className="btn-primary flex-1">{sending ? 'Gönderiliyor…' : '⏳ Yayınla'}</button>
+      </div>
+    </ModalWrapper>
+  );
+}
+
 // ─── Broadcast Modal ──────────────────────────────────────────────────────────
 
 function BroadcastModal({ items, screens, onClose, onSent }: { items: ContentItem[]; screens: EnrichedScreen[]; onClose: () => void; onSent: (e: BroadcastHistoryEntry) => void }) {
@@ -610,7 +671,7 @@ function ContentCard({ item, selected, onSelect, onApprove, onFeature, onDelete,
 
 // ─── Command Panel (right) ────────────────────────────────────────────────────
 
-function CommandPanel({ screens, channels, activeSchedule, history, onQuickAction, onOverlay, onChannelPlay, connectedCount }: {
+function CommandPanel({ screens, channels, activeSchedule, history, onQuickAction, onOverlay, onChannelPlay, onCountdown, connectedCount }: {
   screens: EnrichedScreen[];
   channels: LiveChannel[];
   activeSchedule: ScheduleEvent | null;
@@ -618,6 +679,7 @@ function CommandPanel({ screens, channels, activeSchedule, history, onQuickActio
   onQuickAction: (id: string | null, event: string, label: string) => void;
   onOverlay: () => void;
   onChannelPlay: (ch: LiveChannel) => void;
+  onCountdown: () => void;
   connectedCount: number;
 }) {
   return (
@@ -658,6 +720,13 @@ function CommandPanel({ screens, channels, activeSchedule, history, onQuickActio
         >
           <span className="text-base flex-shrink-0">💬</span>
           <span className="text-xs font-semibold">Overlay Mesaj Gönder</span>
+        </button>
+        <button
+          onClick={onCountdown}
+          className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg border border-violet-500/30 bg-violet-500/5 text-violet-400 hover:bg-violet-500/12 transition-all"
+        >
+          <span className="text-base flex-shrink-0">⏳</span>
+          <span className="text-xs font-semibold">Geri Sayım Yayını</span>
         </button>
       </div>
 
@@ -1046,6 +1115,7 @@ export default function PublishPage() {
         onQuickAction={handleQuickAction}
         onOverlay={() => setModal({ type: 'overlay' })}
         onChannelPlay={ch => setModal({ type: 'channel', channel: ch })}
+        onCountdown={() => setModal({ type: 'countdown' })}
         connectedCount={connectedCount}
       />
 
@@ -1058,6 +1128,7 @@ export default function PublishPage() {
         {modal.type === 'overlay' && <OverlayModal key="ov" screens={screens} onClose={() => setModal({ type: 'none' })} onSent={addHistory} />}
         {modal.type === 'channel' && <ChannelBroadcastModal key="ch" channel={modal.channel} screens={screens} onClose={() => setModal({ type: 'none' })} onSent={addHistory} />}
         {modal.type === 'layout' && <LayoutPickerModal key="lp" screenId={modal.screenId} screenName={modal.screenName} onClose={() => setModal({ type: 'none' })} onChanged={fetchAll} />}
+        {modal.type === 'countdown' && <CountdownBroadcastModal key="cd" screens={screens} onClose={() => setModal({ type: 'none' })} onSent={addHistory} />}
       </AnimatePresence>
     </div>
   );

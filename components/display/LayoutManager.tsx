@@ -31,7 +31,10 @@ export type LayoutType =
   | 'triple'         // Three equal columns
   | 'news_focus'     // Branded panel + content + thick ticker
   | 'portrait'       // Vertical-optimised single column
-  | 'markets';       // Live market data full-screen
+  | 'markets'        // Live market data full-screen
+  | 'breaking_news'  // Red alert banner + large headline + ticker
+  | 'event_countdown'// Countdown timer + background image
+  | 'split_scoreboard'; // Left scoreboard + right social feed
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -191,6 +194,7 @@ export default function LayoutManager({
   const VALID_LAYOUTS: LayoutType[] = [
     'default', 'youtube', 'instagram', 'split_2', 'fullscreen',
     'digital_signage', 'social_wall', 'ambient', 'promo', 'triple', 'news_focus', 'portrait', 'markets',
+    'breaking_news', 'event_countdown', 'split_scoreboard',
   ];
   const resolvedLayout: LayoutType = VALID_LAYOUTS.includes(layout) ? layout : 'default';
 
@@ -236,6 +240,7 @@ export default function LayoutManager({
           {resolvedLayout === 'default' && (
             <DefaultLayout
               highlight={highlight}
+              highlights={approved.filter((c) => c.isHighlight || c.isFeatured)}
               feedContent={feedContent}
               qrUrl={qrUrl}
               {...common}
@@ -326,6 +331,30 @@ export default function LayoutManager({
               {...common}
             />
           )}
+          {resolvedLayout === 'breaking_news' && (
+            <BreakingNewsLayout
+              headline={settings.breaking_headline ?? ''}
+              summary={settings.breaking_summary ?? ''}
+              source={settings.breaking_source ?? ''}
+              {...common}
+            />
+          )}
+          {resolvedLayout === 'event_countdown' && (
+            <EventCountdownLayout
+              target={settings.countdown_target ?? ''}
+              title={settings.countdown_title ?? 'Etkinliğe'}
+              bgUrl={settings.countdown_bg_url ?? ''}
+              {...common}
+            />
+          )}
+          {resolvedLayout === 'split_scoreboard' && (
+            <SplitScoreboardLayout
+              instagramPosts={instagramPosts}
+              feedContent={feedContent}
+              scores={settings.scoreboard_json ?? ''}
+              {...common}
+            />
+          )}
         </motion.div>
       </AnimatePresence>
     </div>
@@ -338,15 +367,15 @@ export default function LayoutManager({
 
 // ─── 1. Default ───────────────────────────────────────────────────────────────
 function DefaultLayout({
-  highlight, feedContent, tickers, weather, primaryColor, secondaryColor, igSlideDuration, qrUrl,
-}: CommonProps & { highlight: any; feedContent: any[]; qrUrl: string }) {
+  highlight, highlights, feedContent, tickers, weather, primaryColor, secondaryColor, igSlideDuration, qrUrl,
+}: CommonProps & { highlight: any; highlights: any[]; feedContent: any[]; qrUrl: string }) {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <HeaderBar primaryColor={primaryColor} weather={weather} />
       <div className="flex flex-1 min-h-0 gap-3 p-3 overflow-hidden">
         <div className="flex-1 min-w-0 min-h-0 overflow-hidden">
-          {highlight
-            ? <AIHighlight content={highlight} primaryColor={primaryColor} secondaryColor={secondaryColor} />
+          {highlight || highlights.length > 0
+            ? <AIHighlight content={highlight} highlights={highlights} primaryColor={primaryColor} secondaryColor={secondaryColor} />
             : <div className="h-full glass rounded-2xl flex items-center justify-center"><EmptyState /></div>
           }
         </div>
@@ -1275,6 +1304,258 @@ function MarketsLayout({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─── 14. Breaking News ──────────────────────────────────────────────────────
+function BreakingNewsLayout({
+  headline, summary, source, tickers, weather, primaryColor,
+}: CommonProps & { headline: string; summary: string; source: string }) {
+  const [pulse, setPulse] = useState(false);
+  useEffect(() => {
+    const t = setInterval(() => setPulse((p) => !p), 800);
+    return () => clearInterval(t);
+  }, []);
+  const [now, setNow] = useState(new Date());
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const timeStr = now.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden" style={{ background: 'rgb(2,8,23)' }}>
+      {/* Breaking header band */}
+      <div
+        className="flex items-center gap-4 px-8 py-4 flex-shrink-0"
+        style={{
+          background: 'linear-gradient(90deg, #ef4444 0%, #b91c1c 100%)',
+          borderBottom: '2px solid #fca5a5',
+        }}
+      >
+        <span
+          className="text-white font-black uppercase tracking-widest text-sm"
+          style={{ opacity: pulse ? 1 : 0.5, transition: 'opacity 0.2s' }}
+        >
+          🔴 SON DAKİKA
+        </span>
+        <div className="flex-1 h-px bg-white/30" />
+        <span className="text-white/80 text-sm font-medium tabular-nums">{timeStr}</span>
+      </div>
+      {/* Main content */}
+      <div className="flex-1 min-h-0 flex flex-col items-center justify-center px-16 py-10 gap-6">
+        {headline ? (
+          <>
+            <motion.h1
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="text-white font-black text-center leading-tight"
+              style={{ fontSize: 'clamp(2rem, 5vw, 4.5rem)', fontFamily: "'Space Grotesk', sans-serif", letterSpacing: '-0.02em' }}
+            >
+              {headline}
+            </motion.h1>
+            {summary && (
+              <motion.p
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 }}
+                className="text-white/60 text-center max-w-3xl"
+                style={{ fontSize: 'clamp(1rem, 2vw, 1.5rem)' }}
+              >
+                {summary}
+              </motion.p>
+            )}
+            {source && (
+              <div className="flex items-center gap-2 px-4 py-1.5 rounded-full" style={{ background: 'rgba(255,255,255,0.1)' }}>
+                <span className="text-white/50 text-xs">Kaynak:</span>
+                <span className="text-white/80 text-xs font-semibold">{source}</span>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="text-center space-y-4">
+            <div className="text-6xl">🔴</div>
+            <p className="text-white/30 text-lg tracking-widest uppercase">Son Dakika bekleniyor…</p>
+            <p className="text-white/20 text-sm">Settings &gt; breaking_headline ile ayarlayın</p>
+          </div>
+        )}
+      </div>
+      {/* Ticker */}
+      <TickerFooter tickers={tickers} primaryColor="#ef4444" />
+    </div>
+  );
+}
+
+// ─── 15. Event Countdown ─────────────────────────────────────────────────────
+function EventCountdownLayout({
+  target, title, bgUrl, tickers, primaryColor,
+}: CommonProps & { target: string; title: string; bgUrl: string }) {
+  const [remaining, setRemaining] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0, past: false });
+
+  useEffect(() => {
+    const calc = () => {
+      if (!target) return;
+      const diff = new Date(target).getTime() - Date.now();
+      if (diff <= 0) { setRemaining({ days: 0, hours: 0, minutes: 0, seconds: 0, past: true }); return; }
+      const d = Math.floor(diff / 86400000);
+      const h = Math.floor((diff % 86400000) / 3600000);
+      const m = Math.floor((diff % 3600000) / 60000);
+      const s = Math.floor((diff % 60000) / 1000);
+      setRemaining({ days: d, hours: h, minutes: m, seconds: s, past: false });
+    };
+    calc();
+    const t = setInterval(calc, 1000);
+    return () => clearInterval(t);
+  }, [target]);
+
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const units = [
+    { label: 'GÜND', value: pad(remaining.days) },
+    { label: 'SAAT', value: pad(remaining.hours) },
+    { label: 'DAK', value: pad(remaining.minutes) },
+    { label: 'SANİYE', value: pad(remaining.seconds) },
+  ];
+  const targetDate = target ? new Date(target).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
+
+  return (
+    <div className="relative flex flex-col h-full overflow-hidden">
+      {/* Background */}
+      {bgUrl ? (
+        <>
+          <img src={bgUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
+          <div className="absolute inset-0" style={{ background: 'rgba(2,8,23,0.72)' }} />
+        </>
+      ) : (
+        <div
+          className="absolute inset-0"
+          style={{ background: `radial-gradient(ellipse 80% 60% at 50% 50%, ${primaryColor}20 0%, rgba(2,8,23,0.98) 100%)` }}
+        />
+      )}
+      {/* Content */}
+      <div className="relative flex-1 flex flex-col items-center justify-center gap-8 px-8">
+        <p
+          className="text-white/70 font-light uppercase tracking-[0.35em] text-center"
+          style={{ fontSize: 'clamp(0.8rem, 2vw, 1.2rem)' }}
+        >
+          {title}
+        </p>
+        {remaining.past ? (
+          <p className="text-white text-4xl font-black uppercase tracking-widest">BAŞLADI!</p>
+        ) : (
+          <div className="flex items-end gap-6 md:gap-10">
+            {units.map((u) => (
+              <div key={u.label} className="flex flex-col items-center gap-2">
+                <div
+                  className="font-black tabular-nums leading-none"
+                  style={{
+                    fontFamily: "'Space Grotesk', sans-serif",
+                    fontSize: 'clamp(3rem, 10vw, 9rem)',
+                    background: `linear-gradient(135deg, #ffffff 30%, ${primaryColor}cc 100%)`,
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                    letterSpacing: '-0.04em',
+                  }}
+                >
+                  {u.value}
+                </div>
+                <span className="text-white/40 text-xs font-bold tracking-[0.25em] uppercase">{u.label}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {targetDate && (
+          <p className="text-white/40 text-sm tracking-widest">📅 {targetDate}</p>
+        )}
+      </div>
+      {/* Ticker */}
+      <div className="relative flex-shrink-0">
+        <TickerFooter tickers={tickers} primaryColor={primaryColor} />
+      </div>
+    </div>
+  );
+}
+
+// ─── 16. Split Scoreboard ─────────────────────────────────────────────────────
+interface ScoreEntry { home: string; away: string; score: string; live?: boolean }
+function SplitScoreboardLayout({
+  instagramPosts, feedContent, scores, tickers, weather, primaryColor, secondaryColor, igSlideDuration,
+}: CommonProps & { instagramPosts: InstagramPostData[]; feedContent: any[]; scores: string }) {
+  let scoreList: ScoreEntry[] = [];
+  try { scoreList = JSON.parse(scores) as ScoreEntry[]; } catch {}
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        {/* Left: Scoreboard */}
+        <div
+          className="w-1/2 flex flex-col overflow-hidden flex-shrink-0"
+          style={{ background: 'rgba(2,8,23,0.97)', borderRight: '1px solid rgba(255,255,255,0.07)' }}
+        >
+          <div
+            className="flex items-center justify-between px-5 py-3.5 flex-shrink-0"
+            style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-lg">⚽</span>
+              <span className="font-bold text-white text-sm uppercase tracking-wider">Maçlar</span>
+            </div>
+            <ClockWidget compact />
+          </div>
+          <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2" style={{ scrollbarWidth: 'none' }}>
+            {scoreList.length > 0 ? scoreList.map((s, i) => (
+              <div
+                key={i}
+                className="flex items-center gap-3 px-4 py-3.5 rounded-xl"
+                style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}
+              >
+                <div className="flex-1 text-right">
+                  <p className="text-white font-semibold text-sm truncate">{s.home}</p>
+                </div>
+                <div className="flex flex-col items-center gap-1 flex-shrink-0">
+                  <span
+                    className="font-black text-xl tabular-nums px-3 py-1 rounded-lg"
+                    style={{
+                      fontFamily: "'Space Grotesk', monospace",
+                      background: s.live ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.06)',
+                      color: s.live ? '#fca5a5' : 'white',
+                    }}
+                  >
+                    {s.score}
+                  </span>
+                  {s.live && (
+                    <span className="text-red-400 text-[9px] font-bold uppercase tracking-widest animate-pulse">Canlı</span>
+                  )}
+                </div>
+                <div className="flex-1">
+                  <p className="text-white font-semibold text-sm truncate">{s.away}</p>
+                </div>
+              </div>
+            )) : (
+              <div className="flex flex-col items-center justify-center h-full gap-3 opacity-30">
+                <span className="text-4xl">⚽</span>
+                <p className="text-white/50 text-xs uppercase tracking-widest">Skor verisi bekleniyor</p>
+                <p className="text-white/30 text-xs">Settings: scoreboard_json</p>
+              </div>
+            )}
+          </div>
+        </div>
+        {/* Right: Social feed */}
+        <div className="flex-1 min-h-0 relative overflow-hidden">
+          {instagramPosts.length > 0
+            ? <InstagramCarousel posts={instagramPosts} autoSlide slideDuration={igSlideDuration} className="absolute inset-0" />
+            : <div className="p-3 h-full overflow-hidden"><SocialFeed content={feedContent} /></div>
+          }
+          <div
+            className="absolute top-0 left-0 right-0 flex items-center justify-between px-5 py-3 pointer-events-none z-20"
+            style={{ background: 'linear-gradient(to bottom, rgba(2,8,23,0.85) 0%, transparent 100%)' }}
+          >
+            <WeatherWidget weather={weather} city={weather?.city ?? ''} compact />
+            <img src="/logo.png" alt="" className="h-6 w-auto object-contain opacity-50" />
+          </div>
+        </div>
+      </div>
+      <TickerFooter tickers={tickers} primaryColor={primaryColor} />
     </div>
   );
 }

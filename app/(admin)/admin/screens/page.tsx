@@ -46,6 +46,9 @@ const LAYOUTS = [
   { value: 'news_focus',     label: 'Haber Odak',     icon: '≡',  desc: 'Sol marka + sağ içerik',      color: 'lime'    },
   { value: 'portrait',       label: 'Dikey',          icon: '▬',  desc: 'Dikey ekran optimizasyonu',   color: 'purple'  },
   { value: 'markets',        label: 'Piyasalar',      icon: '📈', desc: 'Canlı döviz & kripto verileri', color: 'emerald' },
+  { value: 'breaking_news',  label: 'Son Dakika',     icon: '🔴', desc: 'Acil haber bandı',             color: 'red'     },
+  { value: 'event_countdown',label: 'Geri Sayım',     icon: '⏳', desc: 'Etkinlik geri sayım',          color: 'violet'  },
+  { value: 'split_scoreboard',label: 'Skorbord',      icon: '⚽', desc: 'Sol skor + sağ feed',          color: 'green'   },
 ];
 
 const LAYOUT_COLOR: Record<string, string> = {
@@ -62,6 +65,9 @@ const LAYOUT_COLOR: Record<string, string> = {
   news_focus:     'bg-lime-500/20 text-lime-300 border-lime-500/30',
   portrait:       'bg-purple-500/20 text-purple-300 border-purple-500/30',
   markets:        'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+  breaking_news:  'bg-red-500/20 text-red-300 border-red-500/30',
+  event_countdown:'bg-violet-500/20 text-violet-300 border-violet-500/30',
+  split_scoreboard:'bg-green-500/20 text-green-300 border-green-500/30',
 };
 
 const COMMANDS = [
@@ -856,6 +862,29 @@ export default function ScreensPage() {
                 onKeyDown={(e) => e.key === 'Enter' && broadcastMessage()}
               />
               <button onClick={broadcastMessage} className="btn-primary px-5">↗ Gönder</button>
+            </div>
+          </div>
+
+          {/* Preset modes */}
+          <div className="admin-card space-y-4">
+            <h2 className="font-semibold text-tv-text">Hazır Modlar</h2>
+            <p className="text-xs text-tv-muted">Seçili ekranlara (ya da tümüne) hızlı layout ön ayarı uygula</p>
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { label: 'Sabah Modu', icon: '🌅', layout: 'news_focus',  desc: 'Haberler + piyasalar' },
+                { label: 'Akşam Modu', icon: '🌇', layout: 'social_wall', desc: 'Sosyal medya duvarı' },
+                { label: 'Hafta Sonu', icon: '🎉', layout: 'promo',       desc: 'Promosyon döngüsü'   },
+              ].map((p) => (
+                <button
+                  key={p.layout}
+                  onClick={() => { batchCommand('change_layout', { layoutType: p.layout }); toast.success(`${p.label} uygulandı`); }}
+                  className="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-white/5 border border-white/8 hover:bg-indigo-500/10 hover:border-indigo-500/30 transition-all"
+                >
+                  <span className="text-2xl">{p.icon}</span>
+                  <span className="text-xs font-semibold text-tv-text">{p.label}</span>
+                  <span className="text-[10px] text-tv-muted text-center">{p.desc}</span>
+                </button>
+              ))}
             </div>
           </div>
 

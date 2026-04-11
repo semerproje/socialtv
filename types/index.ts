@@ -296,7 +296,10 @@ export type LayoutType =
   | 'triple'
   | 'news_focus'
   | 'portrait'
-  | 'markets';
+  | 'markets'
+  | 'breaking_news'
+  | 'event_countdown'
+  | 'split_scoreboard';
 
 export interface ScreenData {
   id: string;
