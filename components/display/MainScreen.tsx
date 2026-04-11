@@ -206,124 +206,17 @@ export default function MainScreen({ screenId: urlScreenId }: MainScreenProps) {
     return () => clearInterval(fetchTimerRef.current);
   }, [fetchDisplay, fetchInstagram, fetchScheduleState, fetchYouTube]);
 
-  // ── SSE connection for real-time admin control ──────────────────────────────
+  // ── Screen registration (one-time, non-blocking) ────────────────────────────
   useEffect(() => {
     const sid = getOrCreateScreenId(urlScreenId ?? null);
     screenIdRef.current = sid;
-
-    function connect() {
-      const es = new EventSource(
-        `/api/sync?screenId=${encodeURIComponent(sid)}&name=${encodeURIComponent(localStorage.getItem('screenName') ?? 'Display')}`
-      );
-      sseRef.current = es;
-
-      es.addEventListener('connected', () => {
-        setConnectionStatus('connected');
-        setScreenName(localStorage.getItem('screenName') ?? 'Display');
-        // Broadcast live status
-        fetch('/api/sync/broadcast', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ event: 'screen_connected', data: { screenId: sid } }),
-        }).catch(() => {});
-      });
-
-      // ── Command handlers ──────────────────────────────────────────────────
-      es.addEventListener('reload', () => {
-        window.location.reload();
-      });
-
-      es.addEventListener('update_content', () => {
-        fetchDisplay();
-        fetchInstagram();
-        fetchYouTube();
-        fetchScheduleState();
-      });
-
-      es.addEventListener('play_youtube', (e: MessageEvent) => {
-        const d = JSON.parse(e.data);
-        setLiveStream(null);
-        setYoutubeQueue((q) => [{ videoId: d.videoId, title: d.title }, ...q]);
-        setLayout('youtube');
-      });
-
-      es.addEventListener('play_stream', (e: MessageEvent) => {
-        const d = JSON.parse(e.data);
-        setStreamPlayback({
-          title: d.title,
-          provider: d.provider,
-          playbackMode: d.playbackMode,
-          streamUrl: d.streamUrl,
-          embedUrl: d.embedUrl,
-          videoId: d.videoId,
-          posterUrl: d.posterUrl,
-          logoUrl: d.logoUrl,
-        });
-      });
-
-      es.addEventListener('play_playlist', (e: MessageEvent) => {
-        const d = JSON.parse(e.data);
-        if (Array.isArray(d.videos)) {
-          setYoutubeQueue(d.videos);
-          setLayout('youtube');
-        }
-      });
-
-      es.addEventListener('show_instagram', () => {
-        fetchInstagram();
-        setLayout('instagram');
-      });
-
-      es.addEventListener('show_ad', () => {
-        setShowAd(true);
-      });
-
-      es.addEventListener('change_layout', (e: MessageEvent) => {
-        const d = JSON.parse(e.data);
-        setLiveStream(null);
-        if (d.layoutType) setLayout(d.layoutType as LayoutType);
-      });
-
-      es.addEventListener('fullscreen_video', (e: MessageEvent) => {
-        const d = JSON.parse(e.data);
-        if (d.videoId) {
-          setYoutubeQueue([{ videoId: d.videoId, title: d.title }]);
-          setLayout('fullscreen');
-        }
-      });
-
-      es.addEventListener('overlay_message', (e: MessageEvent) => {
-        const d = JSON.parse(e.data);
-        setOverlayMessage({ text: d.text, color: d.color });
-        clearTimeout(overlayTimerRef.current);
-        overlayTimerRef.current = setTimeout(
-          () => setOverlayMessage(null),
-          (d.duration ?? 5) * 1000
-        );
-      });
-
-      es.addEventListener('clear_overlay', () => {
-        setOverlayMessage(null);
-      });
-
-      es.addEventListener('heartbeat', () => {
-        // Keep alive — no action needed
-      });
-
-      es.onerror = () => {
-        setConnectionStatus('reconnecting');
-        es.close();
-        setTimeout(connect, 5000);
-      };
-    }
-
-    connect();
-
-    return () => {
-      sseRef.current?.close();
-      clearTimeout(overlayTimerRef.current);
-    };
-  }, [urlScreenId, fetchDisplay, fetchInstagram, fetchYouTube]);
+    setScreenName(localStorage.getItem('screenName') ?? 'Display');
+    // Register screen presence in DB — fire and forget, no SSE needed
+    fetch(`/api/sync?screenId=${encodeURIComponent(sid)}&name=${encodeURIComponent(localStorage.getItem('screenName') ?? 'Display')}`, {
+      method: 'HEAD',
+    }).catch(() => {});
+    return () => { clearTimeout(overlayTimerRef.current); };
+  }, [urlScreenId]);
 
   // ── Firestore realtime listener (primary command channel) ──────────────────
   useEffect(() => {
@@ -384,20 +277,23 @@ export default function MainScreen({ screenId: urlScreenId }: MainScreenProps) {
       }
     }
 
-    const screenLastRef = { ts: 0 };
-    const broadcastLastRef = { ts: 0 };
+    // Only process commands sent AFTER mount — ignore all historical commands
+    // (ts:0 was the root cause of the infinite reload loop)
+    const bootTs = Date.now() - 2000;
+    const screenLastRef = { ts: bootTs };
+    const broadcastLastRef = { ts: bootTs };
+    let firestoreReady = false;
 
     const unsubScreen = onSnapshot(doc(db, 'screens', sid), (snap) => {
+      if (!firestoreReady) { firestoreReady = true; setConnectionStatus('connected'); }
       if (snap.exists()) processCommand(snap.data()?.lastCommand, screenLastRef);
     }, () => {
-      setConnectionStatus((current) => (current === 'offline' ? current : 'reconnecting'));
+      setConnectionStatus((current) => (current === 'connected' ? 'reconnecting' : current));
     });
 
     const unsubBroadcast = onSnapshot(doc(db, 'broadcast', 'current'), (snap) => {
       if (snap.exists()) processCommand(snap.data()?.lastCommand, broadcastLastRef);
-    }, () => {
-      setConnectionStatus((current) => (current === 'offline' ? current : 'reconnecting'));
-    });
+    }, () => {});
 
     return () => { unsubScreen(); unsubBroadcast(); };
   }, [urlScreenId, fetchDisplay, fetchInstagram, fetchScheduleState, fetchYouTube, setStreamPlayback]);

@@ -15,6 +15,19 @@ let heartbeatStarted = false;
 const enc = new TextEncoder();
 
 /**
+ * HEAD /api/sync — lightweight screen presence ping (no SSE)
+ */
+export async function HEAD(req: NextRequest) {
+  const screenId = req.nextUrl.searchParams.get('screenId');
+  const screenName = req.nextUrl.searchParams.get('name') ?? undefined;
+  if (screenId) {
+    const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? req.headers.get('x-real-ip') ?? undefined;
+    db.screen.upsert(screenId, { name: screenName ?? `Ekran ${screenId.slice(-8)}`, lastSeen: new Date().toISOString(), ipAddress: ip }).catch(() => {});
+  }
+  return new Response(null, { status: 200 });
+}
+
+/**
  * GET /api/sync?screenId=...&name=...
  * Screens subscribe here for real-time SSE events.
  *

@@ -7,6 +7,8 @@ import {
   getConnectedCount,
 } from '@/lib/sse-manager';
 import { enforceRateLimit, requireAdmin } from '@/lib/admin-auth';
+import { adminDb } from '@/lib/firebase-admin';
+import { FieldValue } from 'firebase-admin/firestore';
 
 export const dynamic = 'force-dynamic';
 
@@ -61,8 +63,35 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'event field is required' }, { status: 400 });
   }
 
-  let sent = 0;
+  // Skip internal presence events — don't persist to Firestore
+  const isInternal = event === 'screen_connected' || event === 'screen_disconnected' || event === 'heartbeat';
 
+  // Write to Firestore so screens with Firestore listener receive the command
+  // even when SSE is unavailable (Cloud Run serverless)
+  if (!isInternal) {
+    const cmd = { type: event, data: data ?? {}, sentAt: FieldValue.serverTimestamp() };
+    try {
+      if (screenId) {
+        // Target specific screen
+        await adminDb.collection('screens').doc(screenId).set({ lastCommand: cmd }, { merge: true });
+      } else if (screenIds?.length) {
+        // Target multiple screens
+        const batch = adminDb.batch();
+        for (const id of screenIds) {
+          batch.set(adminDb.collection('screens').doc(id), { lastCommand: cmd }, { merge: true });
+        }
+        await batch.commit();
+      } else {
+        // Broadcast to all
+        await adminDb.collection('broadcast').doc('current').set({ lastCommand: cmd }, { merge: true });
+      }
+    } catch {
+      // Non-blocking — SSE fallback below still runs
+    }
+  }
+
+  // SSE delivery (best-effort, works on local / single-instance)
+  let sent = 0;
   if (screenId) {
     const ok = sendToScreen(screenId, event, data ?? {});
     sent = ok ? 1 : 0;
