@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@prisma/client": "^5.13.0",
     "axios": "^1.15.0",
     "clsx": "^2.1.1",

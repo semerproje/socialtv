@@ -6,7 +6,7 @@ import {
   getConnectedScreens,
   startHeartbeat,
 } from '@/lib/sse-manager';
-import { prisma } from '@/lib/prisma';
+import { db } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,15 +33,10 @@ export async function GET(req: NextRequest) {
       req.headers.get('x-real-ip') ??
       undefined;
 
-    await prisma.screen.upsert({
-      where: { id: screenId },
-      update: { lastSeen: new Date(), ipAddress: ip },
-      create: {
-        id: screenId,
-        name: screenName ?? `Ekran ${screenId.slice(-8)}`,
-        lastSeen: new Date(),
-        ipAddress: ip,
-      },
+    await db.screen.upsert(screenId, {
+      name: screenName ?? `Ekran ${screenId.slice(-8)}`,
+      lastSeen: new Date().toISOString(),
+      ipAddress: ip,
     });
   } catch {
     // Non-blocking — screen still gets SSE stream
