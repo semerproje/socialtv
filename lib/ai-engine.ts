@@ -138,8 +138,14 @@ ${systemContext ? `\nMevcut bağlam:\n${systemContext}` : ''}`;
     systemInstruction,
   });
 
+  // Gemini requires history to start with a 'user' turn.
+  // Drop any leading 'assistant'/'model' messages before building history.
+  const historyMessages = messages.slice(0, -1);
+  const firstUserIdx = historyMessages.findIndex((m) => m.role === 'user');
+  const safeHistory = firstUserIdx >= 0 ? historyMessages.slice(firstUserIdx) : [];
+
   const chat = model.startChat({
-    history: messages.slice(0, -1).map((m) => ({
+    history: safeHistory.map((m) => ({
       role: m.role === 'assistant' ? 'model' : 'user',
       parts: [{ text: m.content }],
     })),
