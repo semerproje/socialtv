@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import {
   registerScreen,
   unregisterScreen,
@@ -10,47 +10,47 @@ import { db } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
-// Start heartbeat once (module-level singleton guard)
+// Heartbeat singleton guard
 let heartbeatStarted = false;
+const enc = new TextEncoder();
 
 /**
  * GET /api/sync?screenId=...&name=...
  * Screens subscribe here for real-time SSE events.
+ *
+ * Design notes (Cloud Run + Google LB):
+ *  - Response is returned IMMEDIATELY — no awaits before stream creation.
+ *  - DB upsert is fire-and-forget (non-blocking).
+ *  - Heartbeat every 20s — safely under GCP LB's ~30s idle timeout.
+ *  - No `Connection` header — HTTP/2 ignores it and some proxies reject it.
  */
-export async function GET(req: NextRequest) {
+export function GET(req: NextRequest) {
   const screenId = req.nextUrl.searchParams.get('screenId') ?? `screen_${Date.now()}`;
   const screenName = req.nextUrl.searchParams.get('name') ?? undefined;
 
   if (!heartbeatStarted) {
     heartbeatStarted = true;
-    startHeartbeat(25_000);
+    startHeartbeat(20_000);
   }
 
-  // Update screen heartbeat in DB
-  try {
-    const ip =
-      req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
-      req.headers.get('x-real-ip') ??
-      undefined;
-
-    await db.screen.upsert(screenId, {
+  // Fire-and-forget — must NOT block before returning response
+  const ip =
+    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
+    req.headers.get('x-real-ip') ??
+    undefined;
+  db.screen
+    .upsert(screenId, {
       name: screenName ?? `Ekran ${screenId.slice(-8)}`,
       lastSeen: new Date().toISOString(),
       ipAddress: ip,
-    });
-  } catch {
-    // Non-blocking — screen still gets SSE stream
-  }
-
-  let controller: ReadableStreamDefaultController<Uint8Array>;
+    })
+    .catch(() => {});
 
   const stream = new ReadableStream<Uint8Array>({
     start(ctrl) {
-      controller = ctrl;
       registerScreen(screenId, ctrl, screenName);
 
-      // Send initial payload
-      const enc = new TextEncoder();
+      // Initial event — sent immediately so browser confirms stream is alive
       ctrl.enqueue(
         enc.encode(
           `event: connected\ndata: ${JSON.stringify({
@@ -63,17 +63,17 @@ export async function GET(req: NextRequest) {
     },
     cancel() {
       unregisterScreen(screenId);
-      // notify admin that screen disconnected
       broadcastToAll('screen_disconnected', { screenId, timestamp: new Date().toISOString() });
     },
   });
 
   return new Response(stream, {
+    status: 200,
     headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-store, no-transform',
       'X-Accel-Buffering': 'no',
+      'X-Content-Type-Options': 'nosniff',
     },
   });
 }
