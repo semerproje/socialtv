@@ -222,6 +222,32 @@ function EventFormModal({ initial, screens, channels, onSave, onClose, onDelete 
             </div>
           </div>
 
+          {/* Prime time quick fill */}
+          <div>
+            <p className="text-[10px] text-white/30 mb-1.5">📈 Hızlı Doldur — Önerilen Saatler:</p>
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                { label: 'Sabah Açılış', start: '09:00', end: '11:00', icon: '🌅' },
+                { label: 'Öğle',         start: '12:00', end: '14:00', icon: '🌞' },
+                { label: 'Akşam Üstü',  start: '17:00', end: '19:00', icon: '🌇' },
+                { label: 'Prime Time',   start: '19:00', end: '22:00', icon: '⭐' },
+                { label: 'Gece',         start: '22:00', end: '01:00', icon: '🌙' },
+              ].map(slot => {
+                const today = new Date().toISOString().slice(0, 10);
+                return (
+                  <button
+                    key={slot.label}
+                    type="button"
+                    onClick={() => { set('startAt', `${today}T${slot.start}`); set('endAt', `${today}T${slot.end}`); }}
+                    className="flex items-center gap-1 px-2 py-1 rounded-lg border border-white/8 text-white/40 hover:border-indigo-500/40 hover:text-indigo-300 transition-all text-[10px]"
+                  >
+                    <span>{slot.icon}</span><span>{slot.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Recurrence */}
           <div>
             <label className="label">Tekrar</label>

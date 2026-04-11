@@ -176,3 +176,43 @@ export async function suggestAdSchedule(adTitle: string, stats: string): Promise
   return text || 'Öneri oluşturulamadı.';
 }
 
+// ─── Analyze Image (Gemini Vision) ────────────────────────────────────────────
+export async function analyzeImage(base64: string, mimeType: string, prompt: string): Promise<string> {
+  const start = Date.now();
+  const model = gemini.getGenerativeModel({ model: GEMINI_MODEL });
+  const res = await model.generateContent([
+    { inlineData: { mimeType, data: base64 } },
+    prompt,
+  ]);
+  const text = res.response.text();
+  await logAIRequest('vision', prompt, text, undefined, Date.now() - start);
+  return text;
+}
+
+// ─── Batch Generate ───────────────────────────────────────────────────────────
+export async function batchGenerate(type: string, context: string, count: number): Promise<string[]> {
+  const start = Date.now();
+  const typeLabels: Record<string, string> = {
+    ad_headlines: `${count} farklı, kısa ve etkileyici reklam başlığı (her biri max 25 karakter)`,
+    ig_captions:  `${count} farklı Instagram caption (her biri max 150 karakter, emojili)`,
+    ticker_msgs:  `${count} farklı haber bandı mesajı (her biri max 80 karakter)`,
+    event_titles: `${count} farklı etkinlik başlığı (kısa, enerjik, dikkat çekici)`,
+  };
+  const typeLabel = typeLabels[type] ?? `${count} farklı metin`;
+
+  const prompt = `Lounge/bar işletmesi için aşağıdaki konuya uygun ${typeLabel} üret.
+
+Konu/Bağlam: ${context}
+
+Önemli kurallar:
+- Türkçe yaz
+- Yaratıcı ve özgün ol
+- Her madde farklı bir açıdan yaklaş
+- Bir JSON string dizisi olarak döndür: ["metin1", "metin2", ...]
+- Sadece JSON array döndür, ek açıklama ekleme`;
+
+  const { result, raw, tokenCount } = await generateJSON<string[]>(prompt);
+  await logAIRequest('batch_generate', prompt, raw, tokenCount, Date.now() - start);
+  return Array.isArray(result) ? result : [];
+}
+
