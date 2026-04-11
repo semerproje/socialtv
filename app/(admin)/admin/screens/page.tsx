@@ -27,7 +27,9 @@ interface ScreenData {
 interface GroupData {
   id: string;
   name: string;
+  color?: string;
   description?: string;
+  screenCount?: number;
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -423,7 +425,18 @@ export default function ScreensPage() {
   const [loading, setLoading] = useState(true);
   const [connectedCount, setConnectedCount] = useState(0);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [activeTab, setActiveTab] = useState<'screens' | 'broadcast' | 'setup'>('screens');
+  const [activeTab, setActiveTab] = useState<'screens' | 'broadcast' | 'groups' | 'setup'>('screens');
+
+  // Group CRUD state
+  const [showGroupModal, setShowGroupModal] = useState(false);
+  const [groupSaving, setGroupSaving] = useState(false);
+  const [editingGroup, setEditingGroup] = useState<GroupData | null>(null);
+  const [groupForm, setGroupForm] = useState({ name: '', color: '#6366f1', description: '' });
+
+  const GROUP_COLORS = [
+    '#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f97316',
+    '#f59e0b', '#10b981', '#14b8a6', '#22d3ee', '#3b82f6',
+  ];
   const [filterOnline, setFilterOnline] = useState<'all' | 'online' | 'offline'>('all');
   const [filterGroup, setFilterGroup] = useState('all');
 
@@ -611,6 +624,58 @@ export default function ScreensPage() {
     setBroadcastMsg('');
   };
 
+  // ── Group CRUD ────────────────────────────────────────────────────────────
+
+  const openNewGroup = () => {
+    setGroupForm({ name: '', color: '#6366f1', description: '' });
+    setEditingGroup(null);
+    setShowGroupModal(true);
+  };
+
+  const openEditGroup = (g: GroupData) => {
+    setGroupForm({ name: g.name, color: g.color ?? '#6366f1', description: g.description ?? '' });
+    setEditingGroup(g);
+    setShowGroupModal(true);
+  };
+
+  const saveGroup = async () => {
+    if (!groupForm.name.trim()) { toast.error('Grup adı gerekli'); return; }
+    setGroupSaving(true);
+    try {
+      if (editingGroup) {
+        await fetch(`/api/screen-groups?id=${editingGroup.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(groupForm),
+        });
+        toast.success('Grup güncellendi');
+      } else {
+        await fetch('/api/screen-groups', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(groupForm),
+        });
+        toast.success('Grup oluşturuldu');
+      }
+      setShowGroupModal(false);
+      fetchData();
+    } finally { setGroupSaving(false); }
+  };
+
+  const deleteGroup = async (g: GroupData) => {
+    if (!confirm(`"${g.name}" grubunu silmek istiyor musunuz? Gruptaki ekranlar grubundan çıkarılır.`)) return;
+    await fetch(`/api/screen-groups?id=${g.id}`, { method: 'DELETE' });
+    toast.success('Grup silindi');
+    fetchData();
+  };
+
+  const broadcastToGroup = async (groupId: string, event: string, data: Record<string, unknown> = {}) => {
+    const groupScreens = screens.filter((s) => s.groupId === groupId);
+    if (groupScreens.length === 0) { toast('Grupta ekran yok'); return; }
+    await Promise.all(groupScreens.map((s) => broadcast(event, data, s.id)));
+    toast.success(`${groupScreens.length} ekrana gönderildi`);
+  };
+
   // ─────────────────────────────────────────────────────────────────────────
 
   return (
@@ -650,6 +715,7 @@ export default function ScreensPage() {
         {[
           { key: 'screens',   label: 'Ekranlar',       icon: '⬛' },
           { key: 'broadcast', label: 'Yayın Merkezi',  icon: '📡' },
+          { key: 'groups',    label: 'Gruplar',         icon: '🗂️' },
           { key: 'setup',     label: 'Kurulum',        icon: '⚙' },
         ].map((tab) => (
           <button
@@ -662,6 +728,9 @@ export default function ScreensPage() {
             }`}
           >
             {tab.icon} {tab.label}
+            {tab.key === 'groups' && groups.length > 0 && (
+              <span className="ml-1.5 px-1.5 py-0.5 rounded-md bg-white/10 text-[10px] font-semibold">{groups.length}</span>
+            )}
           </button>
         ))}
       </div>
@@ -919,6 +988,156 @@ export default function ScreensPage() {
         </div>
       )}
 
+      {/* ════════════════ GROUPS TAB ════════════════ */}
+      {activeTab === 'groups' && (
+        <div className="space-y-5">
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-tv-muted text-sm">Ekranları grupla, tek komutla tüm gruba yayın yap</p>
+            </div>
+            <button onClick={openNewGroup} className="btn-primary">
+              + Grup Oluştur
+            </button>
+          </div>
+
+          {/* Empty */}
+          {groups.length === 0 && (
+            <div className="admin-card text-center py-16">
+              <div className="text-5xl mb-4 opacity-30">🗂️</div>
+              <p className="text-tv-text font-medium">Henüz grup yok</p>
+              <p className="text-tv-muted text-sm mt-2 mb-6">Ekranlarınızı konuma veya işleve göre gruplandırın</p>
+              <button onClick={openNewGroup} className="btn-primary">Grup Oluştur</button>
+            </div>
+          )}
+
+          {/* Group cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {groups.map((g) => {
+              const groupScreens = screens.filter((s) => s.groupId === g.id);
+              const onlineGroupScreens = groupScreens.filter((s) => s.isOnline);
+              return (
+                <motion.div
+                  key={g.id}
+                  layout
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="admin-card space-y-4 relative overflow-hidden hover:border-white/20 transition-all"
+                >
+                  {/* Color accent bar */}
+                  <div className="absolute top-0 left-0 right-0 h-0.5" style={{ background: g.color ?? '#6366f1' }} />
+
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white text-base font-bold" style={{ background: `${g.color ?? '#6366f1'}30`, border: `1px solid ${g.color ?? '#6366f1'}40` }}>
+                        {g.name[0]?.toUpperCase()}
+                      </div>
+                      <div>
+                        <p className="font-semibold text-tv-text text-sm">{g.name}</p>
+                        {g.description && <p className="text-xs text-tv-muted mt-0.5 line-clamp-1">{g.description}</p>}
+                      </div>
+                    </div>
+                    <div className="flex gap-1.5">
+                      <button onClick={() => openEditGroup(g)} className="w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 text-tv-muted text-sm flex items-center justify-center transition-all">✏️</button>
+                      <button onClick={() => deleteGroup(g)} className="w-7 h-7 rounded-lg hover:bg-red-500/10 text-tv-muted hover:text-red-400 text-sm flex items-center justify-center transition-all">🗑️</button>
+                    </div>
+                  </div>
+
+                  {/* Screen count */}
+                  <div className="flex items-center gap-3 text-xs">
+                    <span className="flex items-center gap-1.5 text-tv-muted">
+                      <span className="text-lg">⬛</span>
+                      {groupScreens.length} ekran
+                    </span>
+                    <span className="flex items-center gap-1.5 text-emerald-400">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      {onlineGroupScreens.length} çevrimiçi
+                    </span>
+                  </div>
+
+                  {/* Screen mini-list */}
+                  {groupScreens.length > 0 && (
+                    <div className="space-y-1">
+                      {groupScreens.slice(0, 4).map((s) => (
+                        <div key={s.id} className="flex items-center gap-2 px-2 py-1 rounded-lg bg-white/3">
+                          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${s.isOnline ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+                          <span className="text-xs text-tv-text truncate flex-1">{s.name}</span>
+                          <span className="text-[10px] text-tv-muted">{s.layoutType}</span>
+                        </div>
+                      ))}
+                      {groupScreens.length > 4 && (
+                        <p className="text-[10px] text-tv-muted text-center">+{groupScreens.length - 4} daha</p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Broadcast buttons */}
+                  <div className="flex gap-2 pt-1 border-t border-white/5">
+                    <button
+                      onClick={() => broadcastToGroup(g.id, 'reload')}
+                      className="flex-1 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-tv-muted hover:text-tv-text transition-all border border-transparent hover:border-white/10"
+                    >
+                      ↺ Yenile
+                    </button>
+                    <button
+                      onClick={() => broadcastToGroup(g.id, 'update_content')}
+                      className="flex-1 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-tv-muted hover:text-tv-text transition-all border border-transparent hover:border-white/10"
+                    >
+                      ⟳ Güncelle
+                    </button>
+                    <select
+                      className="flex-[2] text-[11px] bg-white/5 border border-white/10 text-tv-muted rounded-lg px-2 focus:outline-none"
+                      defaultValue=""
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          broadcastToGroup(g.id, 'change_layout', { layoutType: e.target.value });
+                          e.target.value = '';
+                        }
+                      }}
+                    >
+                      <option value="" disabled>Layout değiştir…</option>
+                      {LAYOUTS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
+                    </select>
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
+
+          {/* Unassigned screens */}
+          {screens.filter((s) => !s.groupId).length > 0 && (
+            <div className="admin-card space-y-3">
+              <h3 className="text-sm font-semibold text-tv-muted">Gruba Atanmamış Ekranlar</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                {screens.filter((s) => !s.groupId).map((s) => (
+                  <div key={s.id} className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/3 border border-white/8">
+                    <span className={`w-1.5 h-1.5 rounded-full ${s.isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'}`} />
+                    <span className="text-xs text-tv-text flex-1 truncate">{s.name}</span>
+                    <select
+                      className="text-[10px] bg-white/5 border border-white/10 text-tv-muted rounded-lg px-1.5 py-1 focus:outline-none max-w-[110px]"
+                      defaultValue=""
+                      onChange={async (e) => {
+                        if (!e.target.value) return;
+                        await fetch(`/api/screens?id=${s.id}`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ groupId: e.target.value }),
+                        });
+                        toast.success('Gruba atandı');
+                        fetchData();
+                      }}
+                    >
+                      <option value="" disabled>Gruba ata…</option>
+                      {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ════════════════ SETUP TAB ════════════════ */}
       {activeTab === 'setup' && (
         <div className="grid md:grid-cols-2 gap-4">
@@ -1084,6 +1303,100 @@ start chrome --kiosk ^
                 <button onClick={() => setShowAddModal(false)} className="btn-secondary flex-1 justify-center">İptal</button>
                 <button onClick={saveScreen} className="btn-primary flex-1 justify-center">
                   {editingScreen ? 'Kaydet' : '+ Ekle'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ════════════════ GROUP CREATE/EDIT MODAL ════════════════ */}
+      <AnimatePresence>
+        {showGroupModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/70 backdrop-blur-md z-50 flex items-center justify-center p-4"
+            onClick={(e) => e.target === e.currentTarget && setShowGroupModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.92, y: 16 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.92, y: 16 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+              className="admin-card w-full max-w-sm space-y-5"
+            >
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold text-tv-text">
+                  {editingGroup ? 'Grubu Düzenle' : 'Yeni Grup Oluştur'}
+                </h3>
+                <button onClick={() => setShowGroupModal(false)} className="text-tv-muted hover:text-tv-text text-xl leading-none">✕</button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs text-tv-muted mb-1.5 block">Grup Adı *</label>
+                  <input
+                    autoFocus
+                    placeholder="Örn: Giriş Katı, Bar Bölümü…"
+                    value={groupForm.name}
+                    onChange={(e) => setGroupForm((f) => ({ ...f, name: e.target.value }))}
+                    className="input-field w-full"
+                    onKeyDown={(e) => e.key === 'Enter' && saveGroup()}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-tv-muted mb-1.5 block">Renk</label>
+                  <div className="flex flex-wrap gap-2">
+                    {GROUP_COLORS.map((c) => (
+                      <button
+                        key={c}
+                        onClick={() => setGroupForm((f) => ({ ...f, color: c }))}
+                        className="w-7 h-7 rounded-lg transition-all hover:scale-110"
+                        style={{
+                          background: c,
+                          outline: groupForm.color === c ? `2px solid ${c}` : 'none',
+                          outlineOffset: '2px',
+                        }}
+                      />
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2 mt-2">
+                    <input
+                      type="color"
+                      value={groupForm.color}
+                      onChange={(e) => setGroupForm((f) => ({ ...f, color: e.target.value }))}
+                      className="w-10 h-8 rounded-lg cursor-pointer bg-transparent border border-white/10"
+                    />
+                    <input
+                      type="text"
+                      value={groupForm.color}
+                      onChange={(e) => setGroupForm((f) => ({ ...f, color: e.target.value }))}
+                      className="input-field flex-1 font-mono text-xs"
+                      placeholder="#6366f1"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs text-tv-muted mb-1.5 block">Açıklama (opsiyonel)</label>
+                  <input
+                    placeholder="Grup hakkında kısa not…"
+                    value={groupForm.description}
+                    onChange={(e) => setGroupForm((f) => ({ ...f, description: e.target.value }))}
+                    className="input-field w-full"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-1">
+                <button onClick={() => setShowGroupModal(false)} className="btn-secondary flex-1 justify-center">İptal</button>
+                <button
+                  onClick={saveGroup}
+                  disabled={groupSaving || !groupForm.name.trim()}
+                  className="btn-primary flex-1 justify-center disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {groupSaving ? '⏳' : editingGroup ? 'Kaydet' : '+ Oluştur'}
                 </button>
               </div>
             </motion.div>

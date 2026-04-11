@@ -41,7 +41,16 @@ export function isScheduleEventActive(event: ScheduleEvent, now: Date, screenId?
 
   const recurrence = event.recurrence ?? 'once';
   const dayOfWeek = now.getDay();
-  if (recurrence === 'daily' || recurrence === 'once') return true;
+
+  // 'once' events: auto-expire after their natural window
+  if (recurrence === 'once') {
+    // If no endAt, treat as a 2-hour window from startAt
+    const autoEnd = new Date(start.getTime() + 2 * 60 * 60 * 1000);
+    const effectiveEnd = event.endAt ? new Date(event.endAt) : autoEnd;
+    return now <= effectiveEnd;
+  }
+
+  if (recurrence === 'daily') return true;
   if (recurrence === 'weekdays') return dayOfWeek >= 1 && dayOfWeek <= 5;
   if (recurrence === 'weekends') return dayOfWeek === 0 || dayOfWeek === 6;
   if (recurrence === 'weekly') return normalizeDaysOfWeek(event.daysOfWeek).includes(dayOfWeek);

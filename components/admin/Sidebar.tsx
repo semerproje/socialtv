@@ -48,6 +48,7 @@ const NAV: NavGroup[] = [
     items: [
       { href: '/admin/publish', label: 'Yayın Merkezi', icon: '🎬', badge: 'YENİ', minimumRole: 'editor' },
       { href: '/admin/schedule', label: 'Yayın Takvimi', icon: '📅', badge: 'YENİ', minimumRole: 'editor' },
+      { href: '/admin/playlist', label: 'Playlist', icon: '🎵', badge: 'YENİ', minimumRole: 'editor' },
       { href: '/admin/tv', label: 'TV Yayınları', icon: '📡', minimumRole: 'viewer' },
       { href: '/admin/screens', label: 'Ekran Yönetimi', icon: '🖥️', badge: 'LIVE', minimumRole: 'editor' },
     ],
@@ -66,6 +67,7 @@ const NAV: NavGroup[] = [
     heading: 'ARAÇLAR',
     items: [
       { href: '/admin/media', label: 'Medya Kütüphanesi', icon: '🎬', minimumRole: 'editor' },
+      { href: '/admin/ai-director', label: 'AI Direktörü', icon: '🧠', badge: 'PRO', minimumRole: 'editor' },
       { href: '/admin/ai-studio', label: 'AI Studio', icon: '🤖', badge: 'AI', minimumRole: 'editor' },
       { href: '/admin/analytics', label: 'Analitik', icon: '📈', minimumRole: 'viewer' },
       { href: '/admin/monitoring', label: 'Monitoring', icon: '🩺', minimumRole: 'viewer' },

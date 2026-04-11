@@ -25,15 +25,37 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { text, emoji, isActive = true, priority = 5, color } = body;
+    const {
+      text,
+      emoji,
+      isActive = true,
+      priority = 5,
+      color,
+      scheduleJson,
+      scheduleActive,
+      startHour,
+      endHour,
+      endDate,
+      tags,
+    } = body;
 
-    if (!text) {
+    if (!text || typeof text !== 'string' || !text.trim()) {
       return NextResponse.json({ success: false, error: 'text is required' }, { status: 400 });
     }
 
-    const ticker = await db.tickerMessage.create(
-      { text, emoji, isActive, priority: Number(priority), color },
-    );
+    const ticker = await db.tickerMessage.create({
+      text: text.trim(),
+      emoji,
+      isActive,
+      priority: Number(priority),
+      color,
+      scheduleJson: scheduleJson ?? null,
+      scheduleActive: scheduleActive ?? false,
+      startHour: startHour != null ? Number(startHour) : null,
+      endHour: endHour != null ? Number(endHour) : null,
+      endDate: endDate ?? null,
+      tags: tags ?? null,
+    });
     return NextResponse.json({ success: true, data: ticker }, { status: 201 });
   } catch {
     return NextResponse.json({ success: false, error: 'Failed to create' }, { status: 500 });

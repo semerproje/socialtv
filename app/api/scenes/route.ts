@@ -7,7 +7,7 @@ import { requireAdmin, enforceRateLimit } from '@/lib/admin-auth';
 
 export async function GET(request: NextRequest) {
   const auth = await requireAdmin(request, 'viewer');
-  if (auth instanceof NextResponse) return auth;
+  if (!auth.ok) return auth.response;
 
   try {
     const snap = await adminDb.collection('scenes').orderBy('createdAt', 'desc').get();
@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const auth = await requireAdmin(request, 'editor');
-  if (auth instanceof NextResponse) return auth;
+  if (!auth.ok) return auth.response;
 
   const rl = enforceRateLimit(request, 'scenes-post', 30, 60_000);
   if (rl instanceof NextResponse) return rl;
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   const auth = await requireAdmin(request, 'editor');
-  if (auth instanceof NextResponse) return auth;
+  if (!auth.ok) return auth.response;
 
   const id = request.nextUrl.searchParams.get('id');
   if (!id) return NextResponse.json({ success: false, error: 'id required' }, { status: 400 });
@@ -87,7 +87,7 @@ export async function PATCH(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   const auth = await requireAdmin(request, 'ops');
-  if (auth instanceof NextResponse) return auth;
+  if (!auth.ok) return auth.response;
 
   const id = request.nextUrl.searchParams.get('id');
   if (!id) return NextResponse.json({ success: false, error: 'id required' }, { status: 400 });

@@ -60,7 +60,19 @@ export async function PATCH(req: NextRequest) {
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
 
   const body = await req.json();
-  const screen = await db.screen.update(id, body);
+
+  // Allowlist fields to prevent arbitrary Firestore writes
+  const ALLOWED_FIELDS = [
+    'name', 'location', 'layoutType', 'groupId', 'orientation',
+    'resolution', 'isActive', 'tags', 'lastSeen', 'brightness',
+    'volume', 'isOnline',
+  ];
+  const safeBody: Record<string, unknown> = {};
+  for (const key of ALLOWED_FIELDS) {
+    if (key in body) safeBody[key] = body[key];
+  }
+
+  const screen = await db.screen.update(id, safeBody);
 
   // Notify screen in real-time if layout changed
   if (body.layoutType) {

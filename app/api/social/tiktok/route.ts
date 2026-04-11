@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import { db } from '@/lib/db';
+import { requireAdmin, enforceRateLimit } from '@/lib/admin-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -54,7 +55,13 @@ export async function GET(req: Request) {
  * POST /api/social/tiktok
  * Import a TikTok video as a Content item in the library.
  */
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  const auth = await requireAdmin(req, 'editor');
+  if (!auth.ok) return auth.response;
+
+  const limited = enforceRateLimit(req, 'tiktok-post', 15, 60_000);
+  if (limited) return limited;
+
   try {
     const body = await req.json();
     const { url, author, authorHandle, title, thumbnailUrl, isApproved = false } = body;

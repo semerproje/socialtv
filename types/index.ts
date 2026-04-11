@@ -469,6 +469,63 @@ export interface Screen {
   ipAddress?: string;
 }
 
+// ─── Playlist Types ───────────────────────────────────────────────────────────
+
+export type PlaylistItemType =
+  | 'image'
+  | 'video'
+  | 'youtube'
+  | 'layout'
+  | 'content'
+  | 'ad'
+  | 'instagram'
+  | 'announcement'
+  | 'url'
+  | 'scene';
+
+export type PlaylistTransition = 'fade' | 'slide_left' | 'slide_up' | 'zoom' | 'blur' | 'none';
+
+export interface PlaylistItem {
+  id: string;
+  playlistId: string;
+  order: number;
+  type: PlaylistItemType;
+  title?: string;
+  // content refs
+  contentRef?: string;     // content / ad / instagram item ID
+  mediaUrl?: string;       // image / video / url
+  youtubeVideoId?: string; // youtube video ID
+  layoutType?: string;     // for type='layout'
+  sceneId?: string;        // for type='scene'
+  // playback
+  duration: number;        // seconds (0 = play full video)
+  transition?: PlaylistTransition; // override playlist-level transition
+  // thumbnails / metadata
+  thumbnailUrl?: string;
+  payload?: string;        // JSON extra
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Playlist {
+  id: string;
+  name: string;
+  description?: string;
+  isActive: boolean;
+  loop: boolean;
+  shuffle: boolean;
+  transition: PlaylistTransition;
+  defaultDuration: number; // seconds
+  tags?: string;           // JSON array
+  screenIds?: string;      // JSON array of screen IDs
+  items?: PlaylistItem[];
+  itemCount?: number;
+  totalDuration?: number;  // computed sum of durations
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ─── API Response Types ───────────────────────────────────────────────────────
 
 export interface ApiResponse<T = unknown> {

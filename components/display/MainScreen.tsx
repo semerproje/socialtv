@@ -372,6 +372,21 @@ export default function MainScreen({ screenId: urlScreenId }: MainScreenProps) {
   const primaryColor = settings.primary_color ?? '#6366f1';
   const secondaryColor = settings.secondary_color ?? '#22d3ee';
   const appName = settings.app_name ?? 'Social TV';
+  const accentColor = settings.accent_color ?? primaryColor;
+  const fontFamily = settings.font_family ?? 'Space Grotesk';
+  const footerText = settings.footer_text ?? '';
+  const splashImageUrl = settings.splash_image_url ?? '';
+
+  // ── Inject Google Font dynamically ───────────────────────────────────────────
+  useEffect(() => {
+    const id = 'brand-google-font';
+    document.getElementById(id)?.remove();
+    const link = document.createElement('link');
+    link.id = id;
+    link.rel = 'stylesheet';
+    link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(fontFamily)}:wght@400;500;600;700&display=swap`;
+    document.head.appendChild(link);
+  }, [fontFamily]);
 
   // ── Loading screen ───────────────────────────────────────────────────────────
   if (loading) {
@@ -390,9 +405,9 @@ export default function MainScreen({ screenId: urlScreenId }: MainScreenProps) {
             />
             <div
               className="absolute inset-2 rounded-xl flex items-center justify-center overflow-hidden"
-              style={{ background: `linear-gradient(135deg, ${primaryColor}, ${secondaryColor})` }}
+              style={splashImageUrl ? { backgroundImage: `url(${splashImageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' } : { background: `linear-gradient(135deg, ${primaryColor}, ${secondaryColor})` }}
             >
-              <img src="/logo.png" alt="Social Lounge" className="w-full h-full object-contain p-1" />
+              {!splashImageUrl && <img src="/logo.png" alt="Social Lounge" className="w-full h-full object-contain p-1" />}
             </div>
             <div
               className="absolute -inset-1 rounded-3xl opacity-30 blur-lg"
@@ -417,7 +432,7 @@ export default function MainScreen({ screenId: urlScreenId }: MainScreenProps) {
       onMouseMove={handleActivity}
       onDoubleClick={toggleFullscreen}
       onTouchStart={handleActivity}
-      style={{ cursor: showControls ? 'default' : 'none' }}
+      style={{ cursor: showControls ? 'default' : 'none', fontFamily: `'${fontFamily}', sans-serif` }}
     >
       {/* ── Ambient background ── */}
       <div className="absolute inset-0 pointer-events-none z-0">
@@ -566,6 +581,16 @@ export default function MainScreen({ screenId: urlScreenId }: MainScreenProps) {
           secondaryColor={secondaryColor}
         />
       </div>
+
+      {/* ── Brand footer text ── */}
+      {footerText && (
+        <div
+          className="absolute bottom-0 inset-x-0 z-20 flex items-center justify-end px-4 py-1.5 pointer-events-none"
+          style={{ background: 'rgba(2,8,23,0.75)', backdropFilter: 'blur(8px)', borderTop: `1px solid ${accentColor}25` }}
+        >
+          <span className="text-[11px] font-medium tracking-wide" style={{ color: `${accentColor}cc` }}>{footerText}</span>
+        </div>
+      )}
     </div>
   );
 }

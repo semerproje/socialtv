@@ -40,15 +40,21 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<StatsData | null>(null);
   const [screens, setScreens] = useState<ScreenInfo[]>([]);
   const [loading, setLoading] = useState(true);
+  const [statsError, setStatsError] = useState<string | null>(null);
   const [period, setPeriod] = useState<Period>('7');
   const [broadcasting, setBroadcasting] = useState(false);
   const [broadcastResult, setBroadcastResult] = useState<string | null>(null);
 
   const fetchStats = useCallback(async () => {
+    setStatsError(null);
     try {
       const res = await fetch(`/api/analytics?days=${period}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json();
-      setStats(d.data);
+      if (d.data) setStats(d.data);
+      else throw new Error('Veri alınamadı');
+    } catch (err) {
+      setStatsError(err instanceof Error ? err.message : 'Analitik yüklenemedi');
     } finally {
       setLoading(false);
     }
@@ -57,6 +63,7 @@ export default function DashboardPage() {
   const fetchScreens = useCallback(async () => {
     try {
       const res = await fetch('/api/screens');
+      if (!res.ok) return;
       const d = await res.json();
       if (d.data) {
         const now = Date.now();
@@ -67,7 +74,9 @@ export default function DashboardPage() {
           })),
         );
       }
-    } catch {}
+    } catch (err) {
+      console.warn('Ekran listesi alınamadı:', err);
+    }
   }, []);
 
   useEffect(() => { fetchStats(); }, [fetchStats]);
@@ -197,6 +206,20 @@ export default function DashboardPage() {
           </Link>
         </div>
       </div>
+
+      {/* Error banner */}
+      {statsError && (
+        <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+          <span>⚠️</span>
+          <span className="flex-1">Analitik veriler yüklenemedi: {statsError}</span>
+          <button
+            onClick={() => { setLoading(true); fetchStats(); }}
+            className="px-3 py-1 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-300 text-xs font-medium transition-all"
+          >
+            Tekrar Dene
+          </button>
+        </div>
+      )}
 
       {/* Stat Cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">

@@ -24,6 +24,12 @@ interface ContentItem {
   raw: Record<string, unknown>;
 }
 
+interface GroupData {
+  id: string;
+  name: string;
+  color?: string;
+}
+
 interface BroadcastHistoryEntry {
   id: string;
   event: string;
@@ -685,14 +691,18 @@ interface Scene {
 
 // ─── Create Scene Modal ───────────────────────────────────────────────────────
 
-function CreateSceneModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+function CreateSceneModal({ groups, onClose, onCreated }: { groups: GroupData[]; onClose: () => void; onCreated: () => void }) {
   const [name, setName] = useState('');
   const [icon, setIcon] = useState('🎭');
   const [color, setColor] = useState('#6366f1');
   const [layout, setLayout] = useState<LayoutType>('default');
+  const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
   const ICONS = ['🎭','🎉','🌙','☀️','🍸','🎵','🏆','📺','🎬','📡','⚡','🌟'];
+
+  const toggleGroup = (id: string) =>
+    setSelectedGroups(prev => prev.includes(id) ? prev.filter(g => g !== id) : [...prev, id]);
 
   const handleSave = async () => {
     if (!name.trim()) { toast.error('Sahne adı gerekli'); return; }
@@ -701,7 +711,7 @@ function CreateSceneModal({ onClose, onCreated }: { onClose: () => void; onCreat
       const res = await fetch('/api/scenes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), icon, color, layout }),
+        body: JSON.stringify({ name: name.trim(), icon, color, layout, broadcastToGroups: selectedGroups }),
       });
       if (res.ok) { toast.success('Sahne oluşturuldu'); onCreated(); onClose(); }
       else toast.error('Sahne oluşturulamadı');
@@ -738,6 +748,26 @@ function CreateSceneModal({ onClose, onCreated }: { onClose: () => void; onCreat
             <input type="color" value={color} onChange={e => setColor(e.target.value)} className="w-10 h-9 rounded cursor-pointer bg-transparent border border-white/15" />
           </div>
         </div>
+        {groups.length > 0 && (
+          <div>
+            <label className="text-xs text-white/50 mb-1.5 block">Hedef Gruplar <span className="text-white/25">(seçilmezse tüm ekranlar)</span></label>
+            <div className="flex flex-wrap gap-1.5">
+              {groups.map(g => {
+                const sel = selectedGroups.includes(g.id);
+                return (
+                  <button key={g.id} onClick={() => toggleGroup(g.id)}
+                    className={cn('flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs border transition-all', sel ? 'text-white border-current' : 'text-white/40 border-white/10 hover:border-white/20 hover:text-white/60')}
+                    style={sel ? { background: `${g.color ?? '#6366f1'}20`, borderColor: `${g.color ?? '#6366f1'}60`, color: g.color ?? '#6366f1' } : {}}
+                  >
+                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: g.color ?? '#6366f1' }} />
+                    {g.name}
+                    {sel && <span className="font-bold">✓</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
       <div className="flex gap-3 mt-4">
         <button onClick={onClose} className="btn-secondary flex-1">İptal</button>
@@ -763,6 +793,7 @@ function CommandPanel({ screens, channels, activeSchedule, history, onQuickActio
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [activeScene, setActiveScene] = useState<string | null>(null);
   const [showCreateScene, setShowCreateScene] = useState(false);
+  const [groups, setGroups] = useState<GroupData[]>([]);
 
   const fetchScenes = useCallback(async () => {
     try {
@@ -771,17 +802,47 @@ function CommandPanel({ screens, channels, activeSchedule, history, onQuickActio
     } catch { /* silent */ }
   }, []);
 
-  useEffect(() => { fetchScenes(); }, [fetchScenes]);
+  const fetchGroups = useCallback(async () => {
+    try {
+      const res = await fetch('/api/screen-groups');
+      if (res.ok) { const d = await res.json(); setGroups(d.data ?? []); }
+    } catch { /* silent */ }
+  }, []);
+
+  useEffect(() => { fetchScenes(); fetchGroups(); }, [fetchScenes, fetchGroups]);
 
   const activateScene = async (scene: Scene) => {
     setActiveScene(scene.id);
     try {
-      await fetch('/api/sync/broadcast', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ event: 'change_layout', data: { layoutType: scene.layout } }),
-      });
-      toast.success(`🎭 ${scene.name} sahnesi aktif`);
+      const payload: Record<string, unknown> = { event: 'change_layout', data: { layoutType: scene.layout } };
+      if (scene.broadcastToGroups && scene.broadcastToGroups.length > 0) {
+        // Broadcast only to screens belonging to the specified groups
+        const targetScreens = screens.filter(s => scene.broadcastToGroups.includes(s.groupId ?? ''));
+        if (targetScreens.length > 0) {
+          await Promise.allSettled(
+            targetScreens.map(s => fetch('/api/sync/broadcast', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ...payload, screenId: s.id }),
+            }))
+          );
+          const groupNames = scene.broadcastToGroups
+            .map(gid => groups.find(g => g.id === gid)?.name ?? gid)
+            .join(', ');
+          toast.success(`🎭 ${scene.name} → ${groupNames}`);
+        } else {
+          toast.error('Bu gruplarda ekran bulunamadı');
+          setActiveScene(null);
+          return;
+        }
+      } else {
+        await fetch('/api/sync/broadcast', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        toast.success(`🎭 ${scene.name} sahnesi aktif`);
+      }
     } catch { toast.error('Sahne uygulanamadı'); setActiveScene(null); }
   };
 
@@ -824,6 +885,14 @@ function CommandPanel({ screens, channels, activeSchedule, history, onQuickActio
               >
                 <span>{s.icon}</span>
                 <span>{s.name}</span>
+                {s.broadcastToGroups?.length > 0 && (
+                  <span className="flex gap-0.5">
+                    {s.broadcastToGroups.slice(0, 3).map(gid => {
+                      const g = groups.find(g => g.id === gid);
+                      return <span key={gid} className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: g?.color ?? '#6366f1' }} />;
+                    })}
+                  </span>
+                )}
                 {activeScene === s.id && <span className="w-1.5 h-1.5 rounded-full bg-current opacity-70" />}
               </button>
             ))}
@@ -831,7 +900,7 @@ function CommandPanel({ screens, channels, activeSchedule, history, onQuickActio
         )}
         {showCreateScene && (
           <AnimatePresence>
-            <CreateSceneModal onClose={() => setShowCreateScene(false)} onCreated={fetchScenes} />
+            <CreateSceneModal groups={groups} onClose={() => setShowCreateScene(false)} onCreated={fetchScenes} />
           </AnimatePresence>
         )}
       </div>

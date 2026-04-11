@@ -28,6 +28,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     }
   }, [user, loading, router]);
 
+  // Periodic alert check — runs every 5 minutes while admin panel is open
+  useEffect(() => {
+    if (!user) return;
+    const runCheck = () => fetch('/api/monitoring/check-alerts', { method: 'POST' }).catch(() => {});
+    runCheck();
+    const t = setInterval(runCheck, 5 * 60 * 1000);
+    return () => clearInterval(t);
+  }, [user]);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-[#030712] flex items-center justify-center">

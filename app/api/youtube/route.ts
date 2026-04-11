@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { requireAdmin, enforceRateLimit } from '@/lib/admin-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,6 +31,12 @@ export async function GET(req: NextRequest) {
 
 // POST /api/youtube — add video or create playlist
 export async function POST(req: NextRequest) {
+  const auth = await requireAdmin(req, 'editor');
+  if (!auth.ok) return auth.response;
+
+  const limited = enforceRateLimit(req, 'youtube-post', 20, 60_000);
+  if (limited) return limited;
+
   try {
     const body = await req.json();
 
@@ -76,22 +83,53 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// PATCH /api/youtube?id=... — update
+// PATCH /api/youtube?id=... — update video | ?playlistId=... — update playlist | ?action=reorder — batch display order
 export async function PATCH(req: NextRequest) {
+  const auth = await requireAdmin(req, 'editor');
+  if (!auth.ok) return auth.response;
+
+  const limited = enforceRateLimit(req, 'youtube-patch', 60, 60_000);
+  if (limited) return limited;
+
   try {
     const id = req.nextUrl.searchParams.get('id');
-    if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
+    const playlistId = req.nextUrl.searchParams.get('playlistId');
+    const action = req.nextUrl.searchParams.get('action');
     const body = await req.json();
+
+    // Batch reorder videos
+    if (action === 'reorder' && Array.isArray(body.items)) {
+      await Promise.all(
+        body.items.map((item: { id: string; displayOrder: number }) =>
+          db.youTubeVideo.update(item.id, { displayOrder: item.displayOrder })
+        )
+      );
+      return NextResponse.json({ success: true });
+    }
+
+    // Update playlist
+    if (playlistId) {
+      const playlist = await db.videoPlaylist.update(playlistId, body);
+      return NextResponse.json({ success: true, data: playlist });
+    }
+
+    if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
     const video = await db.youTubeVideo.update(id, body);
     return NextResponse.json({ success: true, data: video });
   } catch (error) {
     console.error('PATCH /api/youtube error:', error);
-    return NextResponse.json({ success: false, error: 'Failed to update video' }, { status: 500 });
+    return NextResponse.json({ success: false, error: 'Failed to update' }, { status: 500 });
   }
 }
 
 // DELETE /api/youtube?id=... or ?playlistId=...
 export async function DELETE(req: NextRequest) {
+  const auth = await requireAdmin(req, 'editor');
+  if (!auth.ok) return auth.response;
+
+  const limited = enforceRateLimit(req, 'youtube-delete', 20, 60_000);
+  if (limited) return limited;
+
   try {
     const id = req.nextUrl.searchParams.get('id');
     const playlistId = req.nextUrl.searchParams.get('playlistId');

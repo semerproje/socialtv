@@ -158,13 +158,13 @@ export const setting = {
 // ─── TickerMessage ────────────────────────────────────────────────────────────
 
 export const tickerMessage = {
-  async findMany(opts?: { where?: { isActive?: boolean; endDate?: unknown } }) {
+  async findMany(opts?: { where?: { isActive?: boolean; endDate?: true } }) {
     let q: FirebaseFirestore.Query = col('tickers').orderBy('createdAt', 'desc');
     const snap = await q.get();
     const now = Date.now();
     let docs = snap.docs.map((d) => docToObj(d)!);
     if (opts?.where?.isActive !== undefined) docs = docs.filter((d) => d.isActive === opts.where!.isActive);
-    if (opts?.where?.endDate) docs = docs.filter((t) => {
+    if (opts?.where?.endDate === true) docs = docs.filter((t) => {
       const endDate = t.endDate ? new Date(t.endDate as string).getTime() : null;
       return !endDate || endDate >= now;
     });
@@ -235,6 +235,31 @@ export const screenGroup = {
     const snap = await col('screen_groups').orderBy('name', 'asc').get();
     return snap.docs.map((d) => docToObj(d)!);
   },
+
+  async findById(id: string) {
+    const snap = await col('screen_groups').doc(id).get();
+    return docToObj(snap);
+  },
+
+  async create(data: { name: string; color?: string; description?: string }) {
+    const ref = col('screen_groups').doc();
+    await ref.set(clean({ ...data, color: data.color ?? '#6366f1', createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }));
+    return docToObj(await ref.get())!;
+  },
+
+  async update(id: string, data: Record<string, unknown>) {
+    await col('screen_groups').doc(id).update(clean({ ...data, updatedAt: FieldValue.serverTimestamp() }));
+    return docToObj(await col('screen_groups').doc(id).get())!;
+  },
+
+  async delete(id: string) {
+    await col('screen_groups').doc(id).delete();
+    // Detach screens that belonged to this group
+    const screensSnap = await col('screens').where('groupId', '==', id).get();
+    const batch = col('screens').firestore.batch();
+    screensSnap.docs.forEach((d) => batch.update(d.ref, { groupId: null }));
+    if (!screensSnap.empty) await batch.commit();
+  },
 };
 
 // ─── YouTubeVideo ─────────────────────────────────────────────────────────────
@@ -291,6 +316,12 @@ export const videoPlaylist = {
     const now = FieldValue.serverTimestamp();
     const ref = col('video_playlists').doc();
     await ref.set(clean({ ...data, isActive: true, createdAt: now, updatedAt: now }));
+    return docToObj(await ref.get())!;
+  },
+
+  async update(id: string, data: Record<string, unknown>) {
+    const ref = col('video_playlists').doc(id);
+    await ref.update(clean({ ...data, updatedAt: FieldValue.serverTimestamp() }));
     return docToObj(await ref.get())!;
   },
 
@@ -590,6 +621,88 @@ export const liveChannel = {
   },
 };
 
+// ─── Playlist ────────────────────────────────────────────────────────────────
+
+export const playlist = {
+  async findMany(opts?: { where?: { isActive?: boolean } }) {
+    const snap = await col('playlists').orderBy('createdAt', 'desc').get();
+    let docs = snap.docs.map((d) => docToObj(d)!);
+    if (opts?.where?.isActive !== undefined) docs = docs.filter((d) => d.isActive === opts.where!.isActive);
+    return docs;
+  },
+
+  async findUnique(id: string) {
+    return docToObj(await col('playlists').doc(id).get());
+  },
+
+  async create(data: Record<string, unknown>) {
+    const now = FieldValue.serverTimestamp();
+    const ref = col('playlists').doc();
+    await ref.set(clean({
+      ...data,
+      isActive: data.isActive ?? true,
+      loop: data.loop ?? true,
+      shuffle: data.shuffle ?? false,
+      transition: data.transition ?? 'fade',
+      defaultDuration: data.defaultDuration ?? 10,
+      createdAt: now,
+      updatedAt: now,
+    }));
+    return docToObj(await ref.get())!;
+  },
+
+  async update(id: string, data: Record<string, unknown>) {
+    await col('playlists').doc(id).update(clean({ ...data, updatedAt: FieldValue.serverTimestamp() }));
+    return docToObj(await col('playlists').doc(id).get())!;
+  },
+
+  async delete(id: string) {
+    // cascade delete items
+    const itemsSnap = await col('playlist_items').where('playlistId', '==', id).get();
+    const batch = adminDb.batch();
+    itemsSnap.docs.forEach((d) => batch.delete(d.ref));
+    batch.delete(col('playlists').doc(id));
+    await batch.commit();
+  },
+};
+
+// ─── PlaylistItem ─────────────────────────────────────────────────────────────
+
+export const playlistItem = {
+  async findManyByPlaylist(playlistId: string) {
+    const snap = await col('playlist_items')
+      .where('playlistId', '==', playlistId)
+      .orderBy('order', 'asc')
+      .get();
+    return snap.docs.map((d) => docToObj(d)!);
+  },
+
+  async create(data: Record<string, unknown>) {
+    const now = FieldValue.serverTimestamp();
+    const ref = col('playlist_items').doc();
+    await ref.set(clean({ ...data, isActive: data.isActive ?? true, createdAt: now, updatedAt: now }));
+    return docToObj(await ref.get())!;
+  },
+
+  async update(id: string, data: Record<string, unknown>) {
+    await col('playlist_items').doc(id).update(clean({ ...data, updatedAt: FieldValue.serverTimestamp() }));
+    return docToObj(await col('playlist_items').doc(id).get())!;
+  },
+
+  async delete(id: string) {
+    await col('playlist_items').doc(id).delete();
+  },
+
+  async reorder(items: Array<{ id: string; order: number }>) {
+    const batch = adminDb.batch();
+    const now = FieldValue.serverTimestamp();
+    for (const { id, order } of items) {
+      batch.update(col('playlist_items').doc(id), { order, updatedAt: now });
+    }
+    await batch.commit();
+  },
+};
+
 // ─── Composite export (drop-in for prisma) ────────────────────────────────────
 
 export const db = {
@@ -608,4 +721,6 @@ export const db = {
   channelHealthDailyAggregate,
   scheduleEvent,
   liveChannel,
+  playlist,
+  playlistItem,
 };

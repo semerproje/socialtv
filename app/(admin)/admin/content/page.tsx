@@ -1,11 +1,48 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { useSwipeable } from 'react-swipeable';
 import toast from 'react-hot-toast';
 import type { Content } from '@/types';
 import { cn, getPlatformColor, getPlatformIcon, formatNumber, formatRelative } from '@/lib/utils';
 
 const PLATFORMS = ['all', 'custom', 'instagram', 'twitter', 'tiktok', 'announcement'];
+
+// ─── Mobile swipe card wrapper ────────────────────────────────────────────────
+
+function SwipeableContentCard({ onApprove, onReject, children }: {
+  onApprove: () => void;
+  onReject: () => void;
+  children: React.ReactNode;
+}) {
+  const [hint, setHint] = useState<'approve' | 'reject' | null>(null);
+  const handlers = useSwipeable({
+    onSwipedRight: () => { onApprove(); setHint(null); },
+    onSwipedLeft:  () => { onReject();  setHint(null); },
+    onSwiping: ({ deltaX }) => setHint(deltaX > 50 ? 'approve' : deltaX < -50 ? 'reject' : null),
+    onSwiped: () => setHint(null),
+    trackMouse: false,
+    preventScrollOnSwipe: true,
+    delta: 50,
+  });
+  return (
+    <div {...handlers} className="relative">
+      {hint === 'approve' && (
+        <div className="absolute inset-0 z-10 flex items-center pl-5 rounded-xl pointer-events-none"
+          style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)' }}>
+          <span className="text-emerald-400 font-bold text-sm">✓ Onayla</span>
+        </div>
+      )}
+      {hint === 'reject' && (
+        <div className="absolute inset-0 z-10 flex items-center justify-end pr-5 rounded-xl pointer-events-none"
+          style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)' }}>
+          <span className="text-red-400 font-bold text-sm">✕ Reddet</span>
+        </div>
+      )}
+      {children}
+    </div>
+  );
+}
 
 const emptyForm = {
   platform: 'custom',
@@ -375,7 +412,12 @@ export default function ContentPage() {
       ) : (
         <div className="space-y-3">
           {content.map((item) => (
-            <div key={item.id} className={cn('admin-card flex items-start gap-4 hover:border-white/20 transition-colors', selectedIds.has(item.id) && 'border-indigo-500/40 bg-indigo-500/[0.05]')}>
+            <SwipeableContentCard
+              key={item.id}
+              onApprove={() => handleApprove(item.id, true)}
+              onReject={() => handleApprove(item.id, false)}
+            >
+            <div className={cn('admin-card flex items-start gap-4 hover:border-white/20 transition-colors', selectedIds.has(item.id) && 'border-indigo-500/40 bg-indigo-500/[0.05]')}>
               <input
                 type="checkbox"
                 checked={selectedIds.has(item.id)}
@@ -451,6 +493,7 @@ export default function ContentPage() {
                 </button>
               </div>
             </div>
+            </SwipeableContentCard>
           ))}
         </div>
       )}

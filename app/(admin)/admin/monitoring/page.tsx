@@ -184,10 +184,14 @@ export default function MonitoringPage() {
           <p className="text-tv-muted text-sm mt-1">Sistem sağlık durumu, uptime ve hata kayıtları</p>
           <p className="text-white/35 text-xs mt-2 uppercase tracking-[0.18em]">Rol: {adminRole ?? 'viewer'}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <button onClick={runHealthChecks} disabled={runningChecks || adminRole !== 'ops'} className="btn-primary text-sm disabled:opacity-50 disabled:cursor-not-allowed">
             {runningChecks ? 'Health-check...' : 'Health-check Çalıştır'}
           </button>
+          <button
+            onClick={() => fetch('/api/monitoring/check-alerts', { method: 'POST' }).then(() => fetchAll())}
+            className="btn-secondary text-sm"
+          >🔔 Uyarı Kontrolü</button>
           <button onClick={exportCsv} className="btn-secondary text-sm">CSV Export</button>
           <button onClick={fetchAll} className="btn-secondary text-sm">Yenile</button>
         </div>

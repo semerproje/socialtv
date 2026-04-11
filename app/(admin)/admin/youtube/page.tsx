@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import toast from 'react-hot-toast';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, Reorder } from 'framer-motion';
+import { cn } from '@/lib/utils';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 interface VideoData {
@@ -30,6 +31,9 @@ interface PlaylistData {
   isActive: boolean;
   createdAt?: string;
   videoCount?: number;
+  loop?: boolean;
+  shuffle?: boolean;
+  color?: string;
 }
 
 type TabType = 'videos' | 'playlists' | 'broadcast';
@@ -85,8 +89,16 @@ export default function YouTubePage() {
   const [broadcastTitle, setBroadcastTitle] = useState('');
   const [broadcastFetching, setBroadcastFetching] = useState(false);
 
-  const [playlistForm, setPlaylistForm] = useState({ name: '', description: '' });
+  const [playlistForm, setPlaylistForm] = useState({ name: '', description: '', loop: true, shuffle: false, color: '#6366f1' });
   const [savingPlaylist, setSavingPlaylist] = useState(false);
+
+  // Playlist detail / edit
+  const [editingPlaylist, setEditingPlaylist] = useState<PlaylistData | null>(null);
+  const [detailPlaylist, setDetailPlaylist] = useState<PlaylistData | null>(null);
+  const [detailVideos, setDetailVideos] = useState<VideoData[]>([]);
+  const [savingOrder, setSavingOrder] = useState(false);
+  const [showPickVideos, setShowPickVideos] = useState(false);
+  const reorderDebounce = useRef<ReturnType<typeof setTimeout>>();
 
   const urlDebounceRef = useRef<ReturnType<typeof setTimeout>>();
 
@@ -253,25 +265,144 @@ export default function YouTubePage() {
     fetchData();
   }
 
-  async function createPlaylist() {
+  async function savePlaylist() {
     if (!playlistForm.name.trim()) { toast.error('Playlist adı gerekli'); return; }
     setSavingPlaylist(true);
     try {
-      const res = await fetch('/api/youtube', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'playlist', name: playlistForm.name, description: playlistForm.description || undefined }),
-      });
-      if (res.ok) {
-        toast.success('Playlist oluşturuldu');
-        setShowPlaylistModal(false);
-        setPlaylistForm({ name: '', description: '' });
-        fetchData();
+      if (editingPlaylist) {
+        // Update existing playlist
+        const res = await fetch(`/api/youtube?playlistId=${editingPlaylist.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: playlistForm.name,
+            description: playlistForm.description || undefined,
+            loop: playlistForm.loop,
+            shuffle: playlistForm.shuffle,
+            color: playlistForm.color,
+          }),
+        });
+        if (res.ok) {
+          toast.success('Playlist güncellendi');
+          closePlaylistModal();
+          fetchData();
+        } else {
+          const e = await res.json();
+          toast.error(e.error ?? 'Güncelleme hatası');
+        }
       } else {
-        const e = await res.json();
-        toast.error(e.error ?? 'Hata');
+        // Create new playlist
+        const res = await fetch('/api/youtube', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'playlist',
+            name: playlistForm.name,
+            description: playlistForm.description || undefined,
+            loop: playlistForm.loop,
+            shuffle: playlistForm.shuffle,
+            color: playlistForm.color,
+          }),
+        });
+        if (res.ok) {
+          toast.success('Playlist oluşturuldu');
+          closePlaylistModal();
+          fetchData();
+        } else {
+          const e = await res.json();
+          toast.error(e.error ?? 'Hata');
+        }
       }
     } finally { setSavingPlaylist(false); }
+  }
+
+  function openCreatePlaylistModal() {
+    setEditingPlaylist(null);
+    setPlaylistForm({ name: '', description: '', loop: true, shuffle: false, color: '#6366f1' });
+    setShowPlaylistModal(true);
+  }
+
+  function openEditPlaylistModal(pl: PlaylistData) {
+    setEditingPlaylist(pl);
+    setPlaylistForm({
+      name: pl.name,
+      description: pl.description ?? '',
+      loop: pl.loop ?? true,
+      shuffle: pl.shuffle ?? false,
+      color: pl.color ?? '#6366f1',
+    });
+    setShowPlaylistModal(true);
+  }
+
+  function closePlaylistModal() {
+    setShowPlaylistModal(false);
+    setEditingPlaylist(null);
+    setPlaylistForm({ name: '', description: '', loop: true, shuffle: false, color: '#6366f1' });
+  }
+
+  function openDetailView(pl: PlaylistData) {
+    const sorted = videos
+      .filter((v) => v.playlistId === pl.id)
+      .sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
+    setDetailVideos(sorted);
+    setDetailPlaylist(pl);
+    setShowPickVideos(false);
+  }
+
+  function closeDetailView() {
+    setDetailPlaylist(null);
+    setDetailVideos([]);
+    setShowPickVideos(false);
+  }
+
+  async function saveDetailOrder(items: VideoData[]) {
+    setSavingOrder(true);
+    try {
+      await fetch('/api/youtube?action=reorder', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: items.map((v, i) => ({ id: v.id, displayOrder: i })) }),
+      });
+      // Update local state
+      setVideos((vs) =>
+        vs.map((v) => {
+          const idx = items.findIndex((item) => item.id === v.id);
+          return idx >= 0 ? { ...v, displayOrder: idx } : v;
+        })
+      );
+      toast.success('Sıralama kaydedildi');
+    } catch {
+      toast.error('Sıralama kaydedilemedi');
+    } finally {
+      setSavingOrder(false);
+    }
+  }
+
+  async function removeVideoFromPlaylist(videoId: string) {
+    await fetch(`/api/youtube?id=${videoId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playlistId: null }),
+    });
+    setDetailVideos((vs) => vs.filter((v) => v.id !== videoId));
+    setVideos((vs) => vs.map((v) => v.id === videoId ? { ...v, playlistId: undefined, playlist: null } : v));
+    toast.success('Playlist\'ten çıkarıldı');
+  }
+
+  async function addVideoToPlaylist(videoId: string) {
+    if (!detailPlaylist) return;
+    await fetch(`/api/youtube?id=${videoId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playlistId: detailPlaylist.id }),
+    });
+    const video = videos.find((v) => v.id === videoId);
+    if (video) {
+      const updated = { ...video, playlistId: detailPlaylist.id, playlist: { id: detailPlaylist.id, name: detailPlaylist.name } };
+      setDetailVideos((vs) => [...vs, updated]);
+      setVideos((vs) => vs.map((v) => v.id === videoId ? updated : v));
+    }
+    toast.success('Playlist\'e eklendi');
   }
 
   async function deletePlaylist(id: string) {
@@ -604,18 +735,19 @@ export default function YouTubePage() {
       {/* PLAYLISTS TAB */}
       {activeTab === 'playlists' && (
         <div className="space-y-4">
-          <div className="flex justify-end">
-            <button onClick={() => setShowPlaylistModal(true)} className="btn-primary flex items-center gap-2">
+          <div className="flex items-center justify-between">
+            <p className="text-tv-muted text-sm">{playlists.length} playlist · {videos.filter(v => v.playlistId).length} video atanmış</p>
+            <button onClick={openCreatePlaylistModal} className="btn-primary flex items-center gap-2">
               <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4"><path d="M19 11h-6V5a1 1 0 0 0-2 0v6H5a1 1 0 0 0 0 2h6v6a1 1 0 0 0 2 0v-6h6a1 1 0 0 0 0-2z" /></svg>
-              Playlist Oluştur
+              Yeni Playlist
             </button>
           </div>
           {playlists.length === 0 ? (
             <div className="admin-card text-center py-20">
-              <div className="text-6xl mb-4">\uD83D\uDCCB</div>
+              <div className="text-6xl mb-4">📋</div>
               <p className="text-tv-text font-semibold text-lg mb-1">Henüz playlist yok</p>
               <p className="text-tv-muted text-sm mb-6">Videoları gruplamak için playlist oluşturun</p>
-              <button onClick={() => setShowPlaylistModal(true)} className="btn-primary">Playlist Oluştur</button>
+              <button onClick={openCreatePlaylistModal} className="btn-primary">Playlist Oluştur</button>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -627,6 +759,8 @@ export default function YouTubePage() {
                   videos={videos.filter((v) => v.playlistId === pl.id)}
                   onBroadcast={() => broadcastPlaylistById(pl)}
                   onDelete={() => deletePlaylist(pl.id)}
+                  onEdit={() => openEditPlaylistModal(pl)}
+                  onDetail={() => openDetailView(pl)}
                 />
               ))}
             </div>
@@ -880,7 +1014,7 @@ export default function YouTubePage() {
         )}
       </AnimatePresence>
 
-      {/* Create Playlist Modal */}
+      {/* Create / Edit Playlist Modal */}
       <AnimatePresence>
         {showPlaylistModal && (
           <motion.div
@@ -888,45 +1022,269 @@ export default function YouTubePage() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-            onClick={(e) => e.target === e.currentTarget && setShowPlaylistModal(false)}
+            onClick={(e) => e.target === e.currentTarget && closePlaylistModal()}
           >
             <motion.div
               initial={{ scale: 0.95, y: 10 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.95 }}
-              className="admin-card w-full max-w-sm space-y-5"
+              className="admin-card w-full max-w-md space-y-5"
             >
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-bold text-tv-text">\uD83D\uDCCB Playlist Oluştur</h3>
-                <button onClick={() => setShowPlaylistModal(false)} className="text-tv-muted hover:text-tv-text w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/5 transition-colors">\u2715</button>
+                <h3 className="text-lg font-bold text-tv-text">
+                  {editingPlaylist ? '✏️ Playlist Düzenle' : '📋 Yeni Playlist'}
+                </h3>
+                <button onClick={closePlaylistModal} className="text-tv-muted hover:text-tv-text w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/5 transition-colors">✕</button>
               </div>
+
+              {/* Color */}
+              <div>
+                <label className="text-xs text-tv-muted mb-2 block font-medium">Renk</label>
+                <div className="flex gap-2 flex-wrap">
+                  {['#6366f1','#ef4444','#f59e0b','#10b981','#3b82f6','#ec4899','#8b5cf6','#14b8a6'].map((c) => (
+                    <button
+                      key={c}
+                      onClick={() => setPlaylistForm((f) => ({ ...f, color: c }))}
+                      className={cn(
+                        'w-8 h-8 rounded-full transition-all ring-2 ring-offset-2 ring-offset-[#0d1629]',
+                        playlistForm.color === c ? 'ring-white scale-110' : 'ring-transparent hover:scale-105'
+                      )}
+                      style={{ backgroundColor: c }}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Name */}
               <div>
                 <label className="text-xs text-tv-muted mb-1.5 block font-medium">Ad <span className="text-red-400">*</span></label>
-                <input
-                  type="text"
-                  placeholder="ör. Müzik Videoları"
-                  value={playlistForm.name}
-                  onChange={(e) => setPlaylistForm((f) => ({ ...f, name: e.target.value }))}
-                  className="input-field"
-                  autoFocus
-                  onKeyDown={(e) => e.key === 'Enter' && createPlaylist()}
-                />
+                <div className="relative">
+                  <div className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: playlistForm.color }} />
+                  <input
+                    type="text"
+                    placeholder="ör. Müzik Videoları"
+                    value={playlistForm.name}
+                    onChange={(e) => setPlaylistForm((f) => ({ ...f, name: e.target.value }))}
+                    className="input-field pl-8"
+                    autoFocus
+                    onKeyDown={(e) => e.key === 'Enter' && savePlaylist()}
+                  />
+                </div>
               </div>
+
+              {/* Description */}
               <div>
                 <label className="text-xs text-tv-muted mb-1.5 block font-medium">Açıklama</label>
                 <input
                   type="text"
-                  placeholder="İsteğe bağlı"
+                  placeholder="İsteğe bağlı kısa açıklama"
                   value={playlistForm.description}
                   onChange={(e) => setPlaylistForm((f) => ({ ...f, description: e.target.value }))}
                   className="input-field"
                 />
               </div>
-              <div className="flex gap-3">
-                <button onClick={() => setShowPlaylistModal(false)} className="btn-secondary flex-1">İptal</button>
-                <button onClick={createPlaylist} disabled={savingPlaylist} className="btn-primary flex-1 justify-center">
-                  {savingPlaylist ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'Oluştur'}
+
+              {/* Loop & Shuffle */}
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <div
+                  onClick={() => setPlaylistForm((f) => ({ ...f, loop: !f.loop }))}
+                  className={cn(
+                    'flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all select-none',
+                    playlistForm.loop
+                      ? 'border-indigo-500/50 bg-indigo-500/10'
+                      : 'border-white/10 bg-white/3 hover:bg-white/5'
+                  )}
+                >
+                  <span className="text-xl">🔁</span>
+                  <div>
+                    <p className="text-sm font-medium text-tv-text">Döngü</p>
+                    <p className="text-[11px] text-tv-muted">Playlist bitti mi tekrar başlat</p>
+                  </div>
+                </div>
+                <div
+                  onClick={() => setPlaylistForm((f) => ({ ...f, shuffle: !f.shuffle }))}
+                  className={cn(
+                    'flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all select-none',
+                    playlistForm.shuffle
+                      ? 'border-amber-500/50 bg-amber-500/10'
+                      : 'border-white/10 bg-white/3 hover:bg-white/5'
+                  )}
+                >
+                  <span className="text-xl">🔀</span>
+                  <div>
+                    <p className="text-sm font-medium text-tv-text">Karıştır</p>
+                    <p className="text-[11px] text-tv-muted">Sıralamayı rastgele oynat</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-2 border-t border-white/10">
+                <button onClick={closePlaylistModal} className="btn-secondary flex-1">İptal</button>
+                <button onClick={savePlaylist} disabled={savingPlaylist} className="btn-primary flex-1 justify-center">
+                  {savingPlaylist ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : editingPlaylist ? 'Güncelle' : 'Oluştur'}
                 </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Playlist Detail Modal */}
+      <AnimatePresence>
+        {detailPlaylist && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={(e) => e.target === e.currentTarget && closeDetailView()}
+          >
+            <motion.div
+              initial={{ scale: 0.96, y: 12 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.96, opacity: 0 }}
+              className="admin-card w-full max-w-2xl max-h-[85vh] flex flex-col"
+            >
+              {/* Header */}
+              <div className="flex items-center gap-3 pb-4 border-b border-white/8 flex-shrink-0">
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center text-lg flex-shrink-0"
+                  style={{ backgroundColor: (detailPlaylist.color ?? '#6366f1') + '22', border: `1px solid ${detailPlaylist.color ?? '#6366f1'}44` }}
+                >
+                  📋
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-bold text-tv-text truncate">{detailPlaylist.name}</h3>
+                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                    <span className="text-xs text-tv-muted">{detailVideos.length} video</span>
+                    {detailPlaylist.loop && <span className="text-[10px] bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 px-1.5 py-0.5 rounded-full">🔁 Döngü</span>}
+                    {detailPlaylist.shuffle && <span className="text-[10px] bg-amber-500/15 text-amber-300 border border-amber-500/30 px-1.5 py-0.5 rounded-full">🔀 Karıştır</span>}
+                  </div>
+                </div>
+                <div className="flex gap-2 flex-shrink-0">
+                  <button
+                    onClick={() => saveDetailOrder(detailVideos)}
+                    disabled={savingOrder}
+                    className="btn-secondary text-xs py-1.5 flex items-center gap-1"
+                  >
+                    {savingOrder ? <div className="w-3 h-3 border border-white/30 border-t-white rounded-full animate-spin" /> : '💾'} Sıralamayı Kaydet
+                  </button>
+                  <button onClick={closeDetailView} className="text-tv-muted hover:text-tv-text w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/5 transition-colors">✕</button>
+                </div>
+              </div>
+
+              {/* Video List */}
+              <div className="flex-1 overflow-y-auto py-3 space-y-1 min-h-0">
+                {detailVideos.length === 0 ? (
+                  <div className="text-center py-12">
+                    <p className="text-tv-muted text-sm">Bu playlist boş</p>
+                    <button
+                      onClick={() => setShowPickVideos(true)}
+                      className="mt-3 text-indigo-400 hover:text-indigo-300 text-sm transition-colors"
+                    >
+                      + Video ekle
+                    </button>
+                  </div>
+                ) : (
+                  <Reorder.Group
+                    axis="y"
+                    values={detailVideos}
+                    onReorder={setDetailVideos}
+                    className="space-y-1"
+                  >
+                    {detailVideos.map((video, idx) => (
+                      <Reorder.Item
+                        key={video.id}
+                        value={video}
+                        className="flex items-center gap-3 p-2.5 rounded-xl bg-white/3 border border-white/6 hover:bg-white/5 group cursor-grab active:cursor-grabbing select-none"
+                        whileDrag={{ scale: 1.02, boxShadow: '0 8px 24px rgba(0,0,0,0.4)', zIndex: 10, position: 'relative' }}
+                      >
+                        {/* Drag handle */}
+                        <div className="text-tv-muted/30 group-hover:text-tv-muted/60 transition-colors flex-shrink-0">
+                          <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
+                            <path d="M9 4a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm0 8a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm0 8a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm6-16a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm0 8a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm0 8a1 1 0 1 1-2 0 1 1 0 0 1 2 0z" />
+                          </svg>
+                        </div>
+                        {/* Order number */}
+                        <span className="text-[11px] text-tv-muted/50 w-5 text-right flex-shrink-0">{idx + 1}</span>
+                        {/* Thumbnail */}
+                        <div className="w-16 aspect-video rounded-md overflow-hidden bg-black/40 flex-shrink-0">
+                          <img
+                            src={video.thumbnailUrl ?? `https://img.youtube.com/vi/${video.videoId}/mqdefault.jpg`}
+                            alt={video.title}
+                            className="w-full h-full object-cover"
+                            loading="lazy"
+                          />
+                        </div>
+                        {/* Info */}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-tv-text text-sm font-medium line-clamp-1">{video.title}</p>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className="text-tv-muted text-[11px] line-clamp-1">{video.channelName || 'YouTube'}</span>
+                            {video.muted && <span className="text-[10px] text-tv-muted/50">🔇</span>}
+                            {video.loop && <span className="text-[10px] text-tv-muted/50">🔁</span>}
+                            <span className={cn('text-[10px] px-1 rounded', video.isActive ? 'text-emerald-400' : 'text-red-400')}>
+                              {video.isActive ? '●' : '○'}
+                            </span>
+                          </div>
+                        </div>
+                        {/* Remove */}
+                        <button
+                          onClick={() => removeVideoFromPlaylist(video.id)}
+                          className="flex-shrink-0 text-red-400/50 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-500/10"
+                        >
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-3.5 h-3.5">
+                            <path d="M18 6 6 18M6 6l12 12" strokeLinecap="round" />
+                          </svg>
+                        </button>
+                      </Reorder.Item>
+                    ))}
+                  </Reorder.Group>
+                )}
+              </div>
+
+              {/* Add videos section */}
+              <div className="border-t border-white/8 pt-3 flex-shrink-0">
+                <button
+                  onClick={() => setShowPickVideos((v) => !v)}
+                  className="flex items-center gap-2 text-sm text-indigo-400 hover:text-indigo-300 transition-colors"
+                >
+                  <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
+                    <path d="M19 11h-6V5a1 1 0 0 0-2 0v6H5a1 1 0 0 0 0 2h6v6a1 1 0 0 0 2 0v-6h6a1 1 0 0 0 0-2z" />
+                  </svg>
+                  {showPickVideos ? 'Gizle' : 'Video Ekle'}
+                  <span className="text-xs text-white/30">({videos.filter(v => !v.playlistId).length} atanmamış)</span>
+                </button>
+                <AnimatePresence>
+                  {showPickVideos && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="mt-2 max-h-48 overflow-y-auto space-y-1">
+                        {videos.filter((v) => !v.playlistId && !detailVideos.find(dv => dv.id === v.id)).map((v) => (
+                          <div key={v.id} className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-white/5 group">
+                            <div className="w-12 aspect-video rounded overflow-hidden bg-black/40 flex-shrink-0">
+                              <img src={v.thumbnailUrl ?? `https://img.youtube.com/vi/${v.videoId}/mqdefault.jpg`} alt={v.title} className="w-full h-full object-cover" />
+                            </div>
+                            <p className="flex-1 text-sm text-tv-text line-clamp-1">{v.title}</p>
+                            <button
+                              onClick={() => addVideoToPlaylist(v.id)}
+                              className="flex-shrink-0 text-xs text-indigo-400 hover:text-white hover:bg-indigo-500 px-2.5 py-1 rounded-lg border border-indigo-500/30 hover:border-indigo-500 transition-all opacity-0 group-hover:opacity-100"
+                            >
+                              Ekle
+                            </button>
+                          </div>
+                        ))}
+                        {videos.filter((v) => !v.playlistId).length === 0 && (
+                          <p className="text-tv-muted text-xs text-center py-4">Eklenebilecek video yok</p>
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             </motion.div>
           </motion.div>
@@ -1127,62 +1485,128 @@ function PlaylistCard({
   videos,
   onBroadcast,
   onDelete,
+  onEdit,
+  onDetail,
 }: {
   playlist: PlaylistData;
   index: number;
   videos: VideoData[];
   onBroadcast: () => void;
   onDelete: () => void;
+  onEdit: () => void;
+  onDetail: () => void;
 }) {
+  const accent = playlist.color ?? '#6366f1';
   const activeCount = videos.filter((v) => v.isActive).length;
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.06 }}
-      className="admin-card space-y-4 hover:border-white/20 transition-colors"
+      className="admin-card !p-0 overflow-hidden hover:border-white/20 transition-colors relative"
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-indigo-500/15 flex items-center justify-center text-lg">\uD83D\uDCCB</div>
-          <div>
-            <h3 className="font-semibold text-tv-text">{playlist.name}</h3>
-            {playlist.description && <p className="text-tv-muted text-xs mt-0.5">{playlist.description}</p>}
+      {/* Color accent bar */}
+      <div className="h-1 w-full" style={{ backgroundColor: accent }} />
+
+      <div className="p-4 space-y-3">
+        {/* Header row */}
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-3 min-w-0">
+            <div
+              className="w-9 h-9 rounded-lg flex items-center justify-center text-base flex-shrink-0"
+              style={{ backgroundColor: accent + '20', border: `1px solid ${accent}40` }}
+            >
+              📋
+            </div>
+            <div className="min-w-0">
+              <h3 className="font-semibold text-tv-text truncate leading-tight">{playlist.name}</h3>
+              {playlist.description && (
+                <p className="text-tv-muted text-[11px] mt-0.5 line-clamp-1">{playlist.description}</p>
+              )}
+            </div>
+          </div>
+          <div className="flex gap-1 flex-shrink-0">
+            <button
+              onClick={onEdit}
+              className="w-7 h-7 text-tv-muted hover:text-tv-text hover:bg-white/8 rounded-lg flex items-center justify-center transition-colors"
+              title="Düzenle"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+              </svg>
+            </button>
+            {confirmDelete ? (
+              <div className="flex gap-1">
+                <button onClick={() => { onDelete(); setConfirmDelete(false); }} className="text-[10px] bg-red-500 text-white px-1.5 py-1 rounded-md">Evet</button>
+                <button onClick={() => setConfirmDelete(false)} className="text-[10px] bg-white/10 text-tv-muted px-1.5 py-1 rounded-md">İptal</button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setConfirmDelete(true)}
+                className="w-7 h-7 text-red-400/50 hover:text-red-400 hover:bg-red-500/10 rounded-lg flex items-center justify-center transition-colors"
+                title="Sil"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
+                  <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            )}
           </div>
         </div>
-        <span className="badge badge-primary flex-shrink-0">{playlist.videoCount ?? 0} video</span>
-      </div>
-      {videos.length > 0 && (
-        <div className="flex gap-1.5 overflow-hidden">
-          {videos.slice(0, 4).map((v) => (
-            <div key={v.id} className="w-16 aspect-video rounded-md overflow-hidden bg-black/40 flex-shrink-0">
-              <img
-                src={v.thumbnailUrl ?? `https://img.youtube.com/vi/${v.videoId}/mqdefault.jpg`}
-                alt={v.title}
-                className="w-full h-full object-cover"
-                loading="lazy"
-              />
-            </div>
-          ))}
-          {videos.length > 4 && (
-            <div className="w-16 aspect-video rounded-md bg-white/5 flex-shrink-0 flex items-center justify-center">
-              <span className="text-tv-muted text-xs font-medium">+{videos.length - 4}</span>
-            </div>
-          )}
+
+        {/* Badges */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/8 text-tv-muted">{videos.length} video</span>
+          {activeCount > 0 && <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400">{activeCount} aktif</span>}
+          {playlist.loop && <span className="text-[11px] px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">🔁 Döngü</span>}
+          {playlist.shuffle && <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/20">🔀 Karıştır</span>}
         </div>
-      )}
-      <p className="text-xs text-tv-muted">{activeCount} aktif \u2022 {videos.length - activeCount} pasif video</p>
-      <div className="h-px bg-white/5" />
-      <div className="flex gap-2">
-        <button onClick={onBroadcast} className="btn-primary flex-1 justify-center text-sm">
-          <svg viewBox="0 0 24 24" fill="currentColor" className="w-3.5 h-3.5"><path d="M8 5v14l11-7z" /></svg>
-          Oynat
-        </button>
-        <button onClick={onDelete} className="btn-danger text-xs px-3">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
-            <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
+
+        {/* Thumbnail mosaic */}
+        {videos.length > 0 && (
+          <div className="flex gap-1 overflow-hidden rounded-lg">
+            {videos.slice(0, 4).map((v) => (
+              <div key={v.id} className={cn('aspect-video overflow-hidden bg-black/40 flex-shrink-0', videos.length === 1 ? 'flex-1' : 'w-[calc(25%-3px)]')}>
+                <img
+                  src={v.thumbnailUrl ?? `https://img.youtube.com/vi/${v.videoId}/mqdefault.jpg`}
+                  alt={v.title}
+                  className="w-full h-full object-cover"
+                  loading="lazy"
+                />
+              </div>
+            ))}
+            {videos.length > 4 && (
+              <div className="w-[calc(25%-3px)] aspect-video bg-white/5 flex-shrink-0 flex items-center justify-center rounded-sm">
+                <span className="text-tv-muted text-xs font-medium">+{videos.length - 4}</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="flex gap-2 pt-1">
+          <button
+            onClick={onDetail}
+            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-white/10 hover:bg-white/5 text-tv-text text-xs font-medium transition-colors"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
+              <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Yönet
+          </button>
+          <button
+            onClick={onBroadcast}
+            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl font-medium text-xs text-white transition-colors"
+            style={{ backgroundColor: accent, opacity: videos.length === 0 ? 0.4 : 1 }}
+            disabled={videos.length === 0}
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor" className="w-3.5 h-3.5"><path d="M8 5v14l11-7z" /></svg>
+            Oynat
+          </button>
+        </div>
       </div>
     </motion.div>
   );

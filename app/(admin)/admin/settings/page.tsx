@@ -8,6 +8,16 @@ import { storage } from '@/lib/firebase';
 
 const SETTING_GROUPS = [
   {
+    title: '🏷️ Brand Kit',
+    keys: [
+      { key: 'accent_color', label: 'Vurgu Rengi', type: 'color' },
+      { key: 'font_family', label: 'Yazı Tipi', type: 'select', options: ['Space Grotesk', 'Inter', 'Roboto', 'Montserrat', 'Poppins'] },
+      { key: 'splash_image_url', label: 'Açılış Görseli URL', type: 'text', placeholder: 'https://…' },
+      { key: 'favicon_url', label: 'Favicon URL', type: 'text', placeholder: 'https://…' },
+      { key: 'footer_text', label: 'Footer Metni', type: 'text', placeholder: 'Powered by Social Lounge TV' },
+    ],
+  },
+  {
     title: '📱 Uygulama',
     keys: [
       { key: 'app_name', label: 'Uygulama Adı', type: 'text', placeholder: 'Social Lounge TV' },

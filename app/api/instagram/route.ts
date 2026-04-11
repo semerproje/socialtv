@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { requireAdmin, enforceRateLimit } from '@/lib/admin-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,6 +28,12 @@ export async function GET(req: NextRequest) {
 
 // POST /api/instagram — add post manually
 export async function POST(req: NextRequest) {
+  const auth = await requireAdmin(req, 'editor');
+  if (!auth.ok) return auth.response;
+
+  const limited = enforceRateLimit(req, 'instagram-post', 20, 60_000);
+  if (limited) return limited;
+
   try {
     const body = await req.json();
     const {
@@ -77,6 +84,9 @@ export async function POST(req: NextRequest) {
 
 // DELETE /api/instagram?id=...
 export async function DELETE(req: NextRequest) {
+  const auth = await requireAdmin(req, 'editor');
+  if (!auth.ok) return auth.response;
+
   try {
     const id = req.nextUrl.searchParams.get('id');
     if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });

@@ -34,7 +34,8 @@ async function fetchWeather(lat: string, lon: string): Promise<WeatherData | und
 
 async function fetchMarkets(): Promise<MarketData | undefined> {
   try {
-    const base = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
+    // Prefer server-to-server URL in production, fall back to local for dev
+    const base = process.env.INTERNAL_APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
     const res = await fetch(`${base}/api/markets`, { next: { revalidate: 300 } });
     if (!res.ok) return undefined;
     const json = await res.json();
@@ -44,7 +45,7 @@ async function fetchMarkets(): Promise<MarketData | undefined> {
 
 async function fetchNews(): Promise<NewsItem[] | undefined> {
   try {
-    const base = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
+    const base = process.env.INTERNAL_APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
     const res = await fetch(`${base}/api/news?limit=10`, { next: { revalidate: 600 } });
     if (!res.ok) return undefined;
     const json = await res.json();
@@ -65,7 +66,7 @@ export async function GET() {
       db.tickerMessage.findMany({
         where: {
           isActive: true,
-          endDate: 'check',
+          endDate: true,  // filter expired tickers
         },
       }),
       getNextAd(),

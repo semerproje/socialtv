@@ -62,6 +62,11 @@ service cloud.firestore {
       allow write: if request.auth != null;
     }
 
+    // ── Notifications (admin-only read/write) ───────────────────────────────
+    match /notifications/{id} {
+      allow read, write: if request.auth != null;
+    }
+
     // ── Analytics (append-only from display screens) ───────────────────────
     match /analytics/{id} {
       allow read: if request.auth != null;

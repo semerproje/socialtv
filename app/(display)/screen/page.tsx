@@ -4,6 +4,7 @@ import dynamic from 'next/dynamic';
 import Image from 'next/image';
 import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
+import { ScreenErrorBoundary } from '@/components/display/ScreenErrorBoundary';
 
 const MainScreen = dynamic(() => import('@/components/display/MainScreen'), {
   ssr: false,
@@ -22,7 +23,11 @@ const MainScreen = dynamic(() => import('@/components/display/MainScreen'), {
 function ScreenContent() {
   const params = useSearchParams();
   const screenId = params.get('id');
-  return <MainScreen screenId={screenId} />;
+  return (
+    <ScreenErrorBoundary>
+      <MainScreen screenId={screenId} />
+    </ScreenErrorBoundary>
+  );
 }
 
 export default function ScreenPage() {

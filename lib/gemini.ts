@@ -12,6 +12,10 @@ if (process.env.NODE_ENV !== 'production') {
   globalForGemini.gemini = gemini;
 }
 
-export const GEMINI_MODEL = 'gemini-2.0-flash';
+// Primary: Gemini 2.5 Pro — maximum intelligence for AI Director
+export const GEMINI_MODEL = 'gemini-2.5-pro';
+
+// Flash model for fast, lightweight operations (moderation, short analysis)
+export const GEMINI_FLASH_MODEL = 'gemini-2.0-flash';
 
 export default gemini;
