@@ -47,6 +47,7 @@ const NAV: NavGroup[] = [
     heading: 'YAYINLAR',
     items: [
       { href: '/admin/publish', label: 'Yayın Merkezi', icon: '🎬', badge: 'YENİ', minimumRole: 'editor' },
+      { href: '/admin/scenes', label: 'Sahneler', icon: '🎭', minimumRole: 'editor' },
       { href: '/admin/schedule', label: 'Yayın Takvimi', icon: '📅', badge: 'YENİ', minimumRole: 'editor' },
       { href: '/admin/playlist', label: 'Playlist', icon: '🎵', badge: 'YENİ', minimumRole: 'editor' },
       { href: '/admin/tv', label: 'TV Yayınları', icon: '📡', minimumRole: 'viewer' },

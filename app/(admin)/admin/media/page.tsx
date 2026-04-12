@@ -57,12 +57,29 @@ function ConfirmDelete({ fileName, onConfirm, onCancel }: {
 }
 
 // ─── Media Card (grid) ────────────────────────────────────────────────────────
-function MediaCard({ item, onDelete }: { item: MediaItem; onDelete: (item: MediaItem) => void }) {
+function MediaCard({ item, onDelete, selected, onToggleSelect, bulkMode }: {
+  item: MediaItem;
+  onDelete: (item: MediaItem) => void;
+  selected?: boolean;
+  onToggleSelect?: () => void;
+  bulkMode?: boolean;
+}) {
   const isImage = item.contentType.startsWith('image/');
   const isVideo = item.contentType.startsWith('video/');
 
   return (
-    <div className="group relative bg-white/5 border border-white/10 rounded-xl overflow-hidden hover:border-indigo-500/40 hover:bg-white/[0.07] transition-all">
+    <div
+      className={`group relative bg-white/5 border rounded-xl overflow-hidden transition-all cursor-pointer ${selected ? 'border-indigo-500/70 bg-indigo-500/10 ring-1 ring-indigo-500/40' : 'border-white/10 hover:border-indigo-500/40 hover:bg-white/[0.07]'}`}
+      onClick={bulkMode ? onToggleSelect : undefined}
+    >
+      {/* Bulk select checkbox */}
+      {bulkMode && (
+        <div className="absolute top-2 left-2 z-10">
+          <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all ${selected ? 'bg-indigo-500 border-indigo-500' : 'bg-black/50 border-white/40 backdrop-blur-sm'}`}>
+            {selected && <span className="text-white text-[10px] font-bold">✓</span>}
+          </div>
+        </div>
+      )}
       {/* Thumbnail */}
       <div className="aspect-video bg-black/30 flex items-center justify-center overflow-hidden relative">
         {isImage ? (
@@ -73,21 +90,23 @@ function MediaCard({ item, onDelete }: { item: MediaItem; onDelete: (item: Media
         ) : (
           <span className="text-4xl">{fileIcon(item.contentType)}</span>
         )}
-        {/* Hover overlay */}
-        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-          <button
-            onClick={() => { navigator.clipboard.writeText(item.url); toast.success('URL kopyalandı'); }}
-            className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium transition-all"
-          >
-            📋 Kopyala
-          </button>
-          <button
-            onClick={() => onDelete(item)}
-            className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-medium transition-all"
-          >
-            🗑️
-          </button>
-        </div>
+        {/* Hover overlay (only in non-bulk mode) */}
+        {!bulkMode && (
+          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+            <button
+              onClick={e => { e.stopPropagation(); navigator.clipboard.writeText(item.url); toast.success('URL kopyalandı'); }}
+              className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium transition-all"
+            >
+              📋 Kopyala
+            </button>
+            <button
+              onClick={e => { e.stopPropagation(); onDelete(item); }}
+              className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-medium transition-all"
+            >
+              🗑️
+            </button>
+          </div>
+        )}
       </div>
       {/* Info */}
       <div className="p-2.5 space-y-0.5">
@@ -102,29 +121,45 @@ function MediaCard({ item, onDelete }: { item: MediaItem; onDelete: (item: Media
 }
 
 // ─── Media Row (list) ─────────────────────────────────────────────────────────
-function MediaRow({ item, onDelete }: { item: MediaItem; onDelete: (item: MediaItem) => void }) {
+function MediaRow({ item, onDelete, selected, onToggleSelect, bulkMode }: {
+  item: MediaItem;
+  onDelete: (item: MediaItem) => void;
+  selected?: boolean;
+  onToggleSelect?: () => void;
+  bulkMode?: boolean;
+}) {
   return (
-    <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 hover:border-indigo-500/30 hover:bg-white/[0.07] transition-all group">
+    <div
+      className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border transition-all group cursor-pointer ${selected ? 'bg-indigo-500/10 border-indigo-500/50 ring-1 ring-indigo-500/30' : 'bg-white/5 border-white/10 hover:border-indigo-500/30 hover:bg-white/[0.07]'}`}
+      onClick={bulkMode ? onToggleSelect : undefined}
+    >
+      {bulkMode && (
+        <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all ${selected ? 'bg-indigo-500 border-indigo-500' : 'border-white/30 bg-white/5'}`}>
+          {selected && <span className="text-white text-[10px] font-bold">✓</span>}
+        </div>
+      )}
       <span className="text-xl shrink-0">{fileIcon(item.contentType)}</span>
       <div className="flex-1 min-w-0">
         <p className="text-tv-text text-sm font-medium truncate">{item.fileName}</p>
         <p className="text-tv-muted text-xs">{item.contentType} · {formatSize(item.size)} · {formatDate(item.updatedAt)}</p>
       </div>
-      <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-        <button
-          onClick={() => { navigator.clipboard.writeText(item.url); toast.success('URL kopyalandı'); }}
-          className="px-2.5 py-1 rounded-lg bg-indigo-600/70 hover:bg-indigo-600 text-white text-xs transition-all"
-        >
-          📋
-        </button>
-        <a href={item.url} target="_blank" rel="noreferrer" className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-tv-text text-xs transition-all">🔗</a>
-        <button
-          onClick={() => onDelete(item)}
-          className="px-2.5 py-1 rounded-lg bg-red-600/70 hover:bg-red-600 text-white text-xs transition-all"
-        >
-          🗑️
-        </button>
-      </div>
+      {!bulkMode && (
+        <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button
+            onClick={e => { e.stopPropagation(); navigator.clipboard.writeText(item.url); toast.success('URL kopyalandı'); }}
+            className="px-2.5 py-1 rounded-lg bg-indigo-600/70 hover:bg-indigo-600 text-white text-xs transition-all"
+          >
+            📋
+          </button>
+          <a href={item.url} target="_blank" rel="noreferrer" className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-tv-text text-xs transition-all" onClick={e => e.stopPropagation()}>🔗</a>
+          <button
+            onClick={e => { e.stopPropagation(); onDelete(item); }}
+            className="px-2.5 py-1 rounded-lg bg-red-600/70 hover:bg-red-600 text-white text-xs transition-all"
+          >
+            🗑️
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -139,6 +174,10 @@ function LibraryTab() {
   const [filterType, setFilterType] = useState<'all' | 'image' | 'video' | 'other'>('all');
   const [deleteTarget, setDeleteTarget] = useState<MediaItem | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // Bulk ops
+  const [bulkMode, setBulkMode] = useState(false);
+  const [selectedNames, setSelectedNames] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const fetchMedia = useCallback(async () => {
     setLoading(true);
@@ -172,6 +211,31 @@ function LibraryTab() {
       setDeleteTarget(null);
     }
   }
+
+  async function handleBulkDelete() {
+    if (selectedNames.size === 0) return;
+    setBulkDeleting(true);
+    let successCount = 0;
+    let failCount = 0;
+    for (const name of Array.from(selectedNames)) {
+      try {
+        const res = await fetch(`/api/media?path=${encodeURIComponent(name)}`, { method: 'DELETE' });
+        if (res.ok) { successCount++; setItems(prev => prev.filter(i => i.name !== name)); }
+        else failCount++;
+      } catch { failCount++; }
+    }
+    setBulkDeleting(false);
+    setSelectedNames(new Set());
+    setBulkMode(false);
+    if (successCount > 0) toast.success(`${successCount} dosya silindi`);
+    if (failCount > 0) toast.error(`${failCount} dosya silinemedi`);
+  }
+
+  const toggleSelect = (name: string) =>
+    setSelectedNames(prev => { const s = new Set(prev); s.has(name) ? s.delete(name) : s.add(name); return s; });
+
+  const selectAll = () => setSelectedNames(new Set(filtered.map(i => i.name)));
+  const clearSelection = () => setSelectedNames(new Set());
 
   const filtered = items.filter((item) => {
     const matchSearch = !search || item.fileName.toLowerCase().includes(search.toLowerCase());
@@ -218,12 +282,45 @@ function LibraryTab() {
             className={`px-2.5 py-1 rounded-md text-xs transition-all ${viewMode === 'list' ? 'bg-tv-primary text-white' : 'text-tv-muted hover:text-tv-text'}`}
           >☰</button>
         </div>
+        {/* Bulk mode toggle */}
+        <button
+          onClick={() => { setBulkMode(p => !p); setSelectedNames(new Set()); }}
+          className={`px-3 py-1.5 rounded-lg text-sm transition-all ${
+            bulkMode ? 'bg-indigo-500/20 border border-indigo-500/40 text-indigo-400' : 'bg-white/5 hover:bg-white/10 text-tv-muted hover:text-tv-text'
+          }`}
+        >
+          {bulkMode ? '✕ İptal' : '☑ Çoklu Seç'}
+        </button>
         <button onClick={fetchMedia} disabled={loading}
           className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-tv-muted hover:text-tv-text text-sm transition-all disabled:opacity-40"
         >
           🔄
         </button>
       </div>
+
+      {/* Bulk action bar */}
+      {bulkMode && (
+        <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20">
+          <span className="text-indigo-300 text-sm font-medium flex-1">
+            {selectedNames.size > 0 ? `${selectedNames.size} dosya seçildi` : 'Dosya seçmek için tıklayın'}
+          </span>
+          <button onClick={selectAll} className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors">
+            Tümünü Seç ({filtered.length})
+          </button>
+          {selectedNames.size > 0 && (
+            <>
+              <button onClick={clearSelection} className="text-xs text-white/40 hover:text-white/60 transition-colors">Seçimi Temizle</button>
+              <button
+                onClick={handleBulkDelete}
+                disabled={bulkDeleting}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-medium transition-all disabled:opacity-50"
+              >
+                {bulkDeleting ? '⏳ Siliniyor…' : `🗑️ ${selectedNames.size} Dosyayı Sil`}
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Stats bar */}
       {!loading && items.length > 0 && (
@@ -268,7 +365,14 @@ function LibraryTab() {
       {!loading && !error && filtered.length > 0 && viewMode === 'grid' && (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
           {filtered.map((item) => (
-            <MediaCard key={item.name} item={item} onDelete={setDeleteTarget} />
+            <MediaCard
+              key={item.name}
+              item={item}
+              onDelete={setDeleteTarget}
+              bulkMode={bulkMode}
+              selected={selectedNames.has(item.name)}
+              onToggleSelect={() => toggleSelect(item.name)}
+            />
           ))}
         </div>
       )}
@@ -277,7 +381,14 @@ function LibraryTab() {
       {!loading && !error && filtered.length > 0 && viewMode === 'list' && (
         <div className="space-y-2">
           {filtered.map((item) => (
-            <MediaRow key={item.name} item={item} onDelete={setDeleteTarget} />
+            <MediaRow
+              key={item.name}
+              item={item}
+              onDelete={setDeleteTarget}
+              bulkMode={bulkMode}
+              selected={selectedNames.has(item.name)}
+              onToggleSelect={() => toggleSelect(item.name)}
+            />
           ))}
         </div>
       )}
