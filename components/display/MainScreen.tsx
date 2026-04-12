@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import type { DisplayData, LivePlaybackSource } from '@/types';
 import LayoutManager, { LayoutType, MainContentSource } from './LayoutManager';
 import type { InstagramPostData } from './InstagramCarousel';
+import PlaylistPlayer from './PlaylistPlayer';
 import { db } from '@/lib/firebase';
 import { doc, onSnapshot, Timestamp } from 'firebase/firestore';
 
@@ -55,6 +56,7 @@ export default function MainScreen({ screenId: urlScreenId }: MainScreenProps) {
   const [showControls, setShowControls] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
   const [screenName, setScreenName] = useState('Display');
+  const [playlistState, setPlaylistState] = useState<{ id: string; name: string } | null>(null);
 
   const toggleFullscreen = useCallback(async () => {
     try {
@@ -288,6 +290,16 @@ export default function MainScreen({ screenId: urlScreenId }: MainScreenProps) {
           break;
         }
         case 'clear_overlay': setOverlayMessage(null); break;
+        case 'start_playlist': {
+          const d = cmd.data ?? {};
+          if (d.playlistId) {
+            setPlaylistState({ id: d.playlistId as string, name: (d.playlistName as string) ?? 'Playlist' });
+          }
+          break;
+        }
+        case 'stop_playlist':
+          setPlaylistState(null);
+          break;
       }
     }
 
@@ -573,6 +585,21 @@ export default function MainScreen({ screenId: urlScreenId }: MainScreenProps) {
               <p className="text-white/25 text-[10px] text-center">F · Tam Ekran &nbsp;·&nbsp; I · Bilgi &nbsp;·&nbsp; R · Yenile</p>
             </div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Playlist Player (overlays entire screen when active) ── */}
+      <AnimatePresence>
+        {playlistState && (
+          <PlaylistPlayer
+            key={playlistState.id}
+            playlistId={playlistState.id}
+            playlistName={playlistState.name}
+            primaryColor={primaryColor}
+            secondaryColor={secondaryColor}
+            onLayoutChange={(lt) => setLayout(lt as LayoutType)}
+            onStop={() => setPlaylistState(null)}
+          />
         )}
       </AnimatePresence>
 
