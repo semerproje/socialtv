@@ -103,5 +103,21 @@ export async function POST(req: NextRequest) {
     sent = getConnectedCount();
   }
 
+  // Persist broadcast log (non-blocking)
+  if (!isInternal) {
+    const targetLabel = screenId
+      ? `screen:${screenId}`
+      : screenIds?.length
+        ? `screens:${screenIds.length}`
+        : 'all';
+    adminDb.collection('broadcast_logs').add({
+      event,
+      targetLabel,
+      targetCount: sent,
+      data: data ?? {},
+      sentAt: FieldValue.serverTimestamp(),
+    }).catch(() => { /* non-blocking */ });
+  }
+
   return NextResponse.json({ success: true, targetedScreens: sent });
 }

@@ -46,6 +46,13 @@ export default function DashboardPage() {
   const [broadcasting, setBroadcasting] = useState(false);
   const [broadcastResult, setBroadcastResult] = useState<string | null>(null);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string>('');
+  const [broadcastLogs, setBroadcastLogs] = useState<{
+    id: string;
+    event: string;
+    targetLabel: string;
+    targetCount: number;
+    sentAt: string | null;
+  }[]>([]);
 
   const fetchStats = useCallback(async () => {
     setStatsError(null);
@@ -81,6 +88,15 @@ export default function DashboardPage() {
     }
   }, []);
 
+  const fetchBroadcastLogs = useCallback(async () => {
+    try {
+      const res = await fetch('/api/sync/logs');
+      if (!res.ok) return;
+      const d = await res.json();
+      if (d.data) setBroadcastLogs(d.data);
+    } catch {}
+  }, []);
+
   const fetchPlaylists = useCallback(async () => {
     try {
       const res = await fetch('/api/playlists');
@@ -102,9 +118,10 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchScreens();
     fetchPlaylists();
+    fetchBroadcastLogs();
     const t = setInterval(fetchScreens, 30_000);
     return () => clearInterval(t);
-  }, [fetchScreens, fetchPlaylists]);
+  }, [fetchScreens, fetchPlaylists, fetchBroadcastLogs]);
 
   const quickBroadcast = async (layoutType: string, label: string) => {
     setBroadcasting(true);
@@ -539,6 +556,60 @@ export default function DashboardPage() {
           </Link>
         </div>
       </div>
+
+      {/* Broadcast Log History */}
+      {broadcastLogs.length > 0 && (
+        <div className="admin-card">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-tv-text">Son Yayın Geçmişi</h2>
+            <button
+              onClick={fetchBroadcastLogs}
+              className="text-xs text-tv-muted hover:text-tv-text transition-colors"
+            >
+              ↻ Yenile
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-white/[0.06]">
+                  <th className="text-left text-tv-muted font-medium pb-2 pr-4">Olay</th>
+                  <th className="text-left text-tv-muted font-medium pb-2 pr-4">Hedef</th>
+                  <th className="text-left text-tv-muted font-medium pb-2 pr-4">Ekran</th>
+                  <th className="text-right text-tv-muted font-medium pb-2">Zaman</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/[0.04]">
+                {broadcastLogs.slice(0, 10).map((log) => {
+                  const eventLabels: Record<string, string> = {
+                    change_layout: '🖥️ Layout',
+                    start_playlist: '🎵 Playlist Başlat',
+                    stop_playlist: '⏹ Playlist Durdur',
+                    send_overlay: '📌 Overlay',
+                    clear_overlay: '✕ Overlay Kaldır',
+                    broadcast_channel: '📡 Kanal Yayın',
+                    set_content: '🖼️ İçerik',
+                    refresh: '🔄 Yenile',
+                  };
+                  const label = eventLabels[log.event] ?? log.event;
+                  return (
+                    <tr key={log.id} className="hover:bg-white/[0.02] transition-colors">
+                      <td className="py-2 pr-4 text-tv-text font-medium">{label}</td>
+                      <td className="py-2 pr-4 text-tv-muted font-mono">
+                        {log.targetLabel === 'all' ? 'Tüm Ekranlar' : log.targetLabel}
+                      </td>
+                      <td className="py-2 pr-4 text-tv-muted">{log.targetCount} ekran</td>
+                      <td className="py-2 text-right text-tv-muted">
+                        {log.sentAt ? formatRelative(log.sentAt) : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Quick Actions */}
       <div className="admin-card">

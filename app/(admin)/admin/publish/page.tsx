@@ -779,9 +779,10 @@ function CreateSceneModal({ groups, onClose, onCreated }: { groups: GroupData[];
 
 // ─── Command Panel (right) ────────────────────────────────────────────────────
 
-function CommandPanel({ screens, channels, activeSchedule, history, onQuickAction, onOverlay, onChannelPlay, onCountdown, connectedCount }: {
+function CommandPanel({ screens, channels, playlists, activeSchedule, history, onQuickAction, onOverlay, onChannelPlay, onCountdown, connectedCount }: {
   screens: EnrichedScreen[];
   channels: LiveChannel[];
+  playlists: { id: string; name: string }[];
   activeSchedule: ScheduleEvent | null;
   history: BroadcastHistoryEntry[];
   onQuickAction: (id: string | null, event: string, label: string) => void;
@@ -790,6 +791,28 @@ function CommandPanel({ screens, channels, activeSchedule, history, onQuickActio
   onCountdown: () => void;
   connectedCount: number;
 }) {
+  const [selectedPlaylistId, setSelectedPlaylistId] = useState('');
+  const [sendingPlaylist, setSendingPlaylist] = useState(false);
+
+  const sendPlaylist = async (targetId = 'all') => {
+    const pl = playlists.find(p => p.id === selectedPlaylistId);
+    if (!pl) return;
+    setSendingPlaylist(true);
+    try {
+      const body: Record<string, unknown> = { event: 'start_playlist', data: { playlistId: pl.id, playlistName: pl.name } };
+      if (targetId !== 'all') body.screenId = targetId;
+      await fetch('/api/sync/broadcast', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      toast.success(`▶ "${pl.name}" → ${targetId === 'all' ? 'tüm ekranlar' : screens.find(s => s.id === targetId)?.name ?? targetId}`);
+    } finally { setSendingPlaylist(false); }
+  };
+
+  const stopPlaylist = async () => {
+    setSendingPlaylist(true);
+    try {
+      await fetch('/api/sync/broadcast', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ event: 'stop_playlist', data: {} }) });
+      toast.success('■ Playlist durduruldu');
+    } finally { setSendingPlaylist(false); }
+  };
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [activeScene, setActiveScene] = useState<string | null>(null);
   const [showCreateScene, setShowCreateScene] = useState(false);
@@ -940,6 +963,35 @@ function CommandPanel({ screens, channels, activeSchedule, history, onQuickActio
         </button>
       </div>
 
+      {/* Playlists */}
+      {playlists.length > 0 && (
+        <div className="p-3 border-b" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+          <p className="text-[10px] font-bold tracking-[0.16em] uppercase text-white/30 mb-2">🎵 Playlist Gönder</p>
+          <select
+            value={selectedPlaylistId}
+            onChange={e => setSelectedPlaylistId(e.target.value)}
+            className="input w-full text-xs mb-2"
+          >
+            {playlists.map(p => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+          <div className="flex gap-1.5">
+            <button
+              onClick={() => sendPlaylist('all')}
+              disabled={sendingPlaylist || !selectedPlaylistId}
+              className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs bg-indigo-600/70 hover:bg-indigo-600 text-white border border-indigo-500/40 disabled:opacity-40 transition-all font-medium"
+            >▶ Tüm Ekranlar</button>
+            <button
+              onClick={stopPlaylist}
+              disabled={sendingPlaylist}
+              title="Playlist durdur"
+              className="px-3 py-1.5 rounded-lg text-xs border border-white/10 text-white/40 hover:text-white/70 hover:border-white/20 disabled:opacity-40 transition-all"
+            >■</button>
+          </div>
+        </div>
+      )}
+
       {/* Active Schedule */}
       {activeSchedule && (
         <div className="p-3 border-b" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
@@ -1015,6 +1067,7 @@ export default function PublishPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [modal, setModal] = useState<ModalState>({ type: 'none' });
   const [history, setHistory] = useState<BroadcastHistoryEntry[]>([]);
+  const [playlists, setPlaylists] = useState<{ id: string; name: string }[]>([]);
   const [connectedCount, setConnectedCount] = useState(0);
   const [showAddMenu, setShowAddMenu] = useState(false);
   const addMenuRef = useRef<HTMLDivElement>(null);
@@ -1025,7 +1078,7 @@ export default function PublishPage() {
 
   const fetchAll = useCallback(async () => {
     try {
-      const [contentRes, igRes, ytRes, screensRes, channelsRes, scheduleRes, sseRes] = await Promise.allSettled([
+      const [contentRes, igRes, ytRes, screensRes, channelsRes, scheduleRes, sseRes, playlistsRes] = await Promise.allSettled([
         fetch('/api/content?pageSize=60'),
         fetch('/api/instagram?limit=30'),
         fetch('/api/youtube'),
@@ -1033,6 +1086,7 @@ export default function PublishPage() {
         fetch('/api/tv-channels?active=1'),
         fetch('/api/schedule/active'),
         fetch('/api/sync/broadcast'),
+        fetch('/api/playlists'),
       ]);
 
       const allItems: ContentItem[] = [];
@@ -1070,6 +1124,10 @@ export default function PublishPage() {
       if (sseRes.status === 'fulfilled' && sseRes.value.ok) {
         const d = await sseRes.value.json();
         setConnectedCount(d.connectedCount ?? 0);
+      }
+      if (playlistsRes.status === 'fulfilled' && playlistsRes.value.ok) {
+        const d = await playlistsRes.value.json();
+        setPlaylists((d.data ?? []).filter((p: { isActive: boolean }) => p.isActive).map((p: { id: string; name: string }) => ({ id: p.id, name: p.name })));
       }
       setItems(allItems);
     } finally { setLoading(false); }
@@ -1320,6 +1378,7 @@ export default function PublishPage() {
       <CommandPanel
         screens={screens}
         channels={channels}
+        playlists={playlists}
         activeSchedule={activeSchedule}
         history={history}
         onQuickAction={handleQuickAction}
