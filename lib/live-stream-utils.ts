@@ -72,6 +72,7 @@ export function validateLiveChannelInput(channel: ReturnType<typeof sanitizeLive
 
 export function channelToBroadcastPayload(channel: LiveChannel) {
   return {
+    channelId: channel.id,
     title: channel.title,
     provider: channel.provider,
     playbackMode: channel.playbackMode,

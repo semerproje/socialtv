@@ -5,7 +5,7 @@ import toast from 'react-hot-toast';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { channelToBroadcastPayload } from '@/lib/live-stream-utils';
-import type { ChannelHealthCheck, LiveChannel, LivePlaybackMode, LiveProvider } from '@/types';
+import type { ChannelHealthCheck, EPGEntry, LiveChannel, LivePlaybackMode, LiveProvider } from '@/types';
 
 const PROVIDERS: Array<{ value: LiveProvider; label: string }> = [
   { value: 'bein', label: 'beIN Sports / beIN Connect' },
@@ -79,6 +79,7 @@ export default function TvPage() {
   const [checkingId, setCheckingId] = useState<string | null>(null);
   const [healthMap, setHealthMap] = useState<Record<string, ChannelHealthCheck>>({});
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
+  const [expandedEpgChannelId, setExpandedEpgChannelId] = useState<string | null>(null);
 
   const fetchChannels = useCallback(async () => {
     setLoading(true);
@@ -434,6 +435,12 @@ export default function TvPage() {
                   <button onClick={() => checkChannelHealth(channel)} disabled={checkingId === channel.id} className="btn-secondary text-sm">
                     {checkingId === channel.id ? 'Test Ediliyor…' : 'Sağlık Testi'}
                   </button>
+                  <button
+                    onClick={() => setExpandedEpgChannelId(p => p === channel.id ? null : channel.id)}
+                    className={cn('btn-secondary text-sm', expandedEpgChannelId === channel.id && 'border-indigo-500/40 text-indigo-300')}
+                  >
+                    📺 Program
+                  </button>
                   <button onClick={() => deleteChannel(channel.id)} className="btn-secondary text-sm text-red-300 border-red-500/20 hover:border-red-500/40">
                     Sil
                   </button>
@@ -457,6 +464,11 @@ export default function TvPage() {
                     {channel.isActive ? 'Pasifleştir' : 'Aktifleştir'}
                   </button>
                 </div>
+                {expandedEpgChannelId === channel.id && (
+                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
+                    <EPGPanel channelId={channel.id} />
+                  </motion.div>
+                )}
               </motion.div>
             ))}
           </div>
@@ -469,6 +481,114 @@ export default function TvPage() {
             </div>
           )}
         </section>
+      </div>
+    </div>
+  );
+}
+
+// ─── EPG Panel ────────────────────────────────────────────────────────────────
+function EPGPanel({ channelId }: { channelId: string }) {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const [entries, setEntries] = useState<EPGEntry[]>([]);
+  const [loadingEpg, setLoadingEpg] = useState(true);
+  const [form, setForm] = useState({ title: '', startTime: '', endTime: '', description: '' });
+  const [saving, setSaving] = useState(false);
+
+  const fetchEpg = useCallback(async () => {
+    setLoadingEpg(true);
+    try {
+      const res = await fetch(`/api/tv-channels/epg?channelId=${channelId}&date=${todayStr}`);
+      if (res.ok) { const d = await res.json(); setEntries(d.data ?? []); }
+    } catch { /* silent */ } finally { setLoadingEpg(false); }
+  }, [channelId, todayStr]);
+
+  useEffect(() => { fetchEpg(); }, [fetchEpg]);
+
+  const addEntry = async () => {
+    if (!form.title.trim() || !form.startTime || !form.endTime) {
+      toast.error('Başlık, başlangıç ve bitiş saati gerekli');
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch('/api/tv-channels/epg', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channelId, date: todayStr, ...form }),
+      });
+      if (res.ok) {
+        setForm({ title: '', startTime: '', endTime: '', description: '' });
+        fetchEpg();
+        toast.success('Program eklendi');
+      } else {
+        const d = await res.json().catch(() => ({}));
+        toast.error(d.error ?? 'Eklenemedi');
+      }
+    } catch { toast.error('Eklenemedi'); } finally { setSaving(false); }
+  };
+
+  const deleteEntry = async (id: string) => {
+    try {
+      const res = await fetch(`/api/tv-channels/epg?id=${id}`, { method: 'DELETE' });
+      if (res.ok) { fetchEpg(); toast.success('Silindi'); }
+      else toast.error('Silinemedi');
+    } catch { toast.error('Silinemedi'); }
+  };
+
+  return (
+    <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-3 space-y-3 text-sm">
+      <p className="text-[10px] font-bold tracking-widest uppercase text-indigo-300/70">
+        📺 Bugünkü Program — {todayStr}
+      </p>
+
+      {/* Entry list */}
+      {loadingEpg ? (
+        <p className="text-white/30 text-xs">Yükleniyor…</p>
+      ) : entries.length === 0 ? (
+        <p className="text-white/25 text-xs">Bugün için program girilmemiş.</p>
+      ) : (
+        <div className="space-y-1.5">
+          {entries.map(e => (
+            <div key={e.id} className="flex items-center gap-2 rounded-lg bg-white/[0.03] border border-white/8 px-2.5 py-1.5">
+              <span className="text-white/50 tabular-nums text-xs min-w-[90px]">{e.startTime} – {e.endTime}</span>
+              <span className="text-white/80 text-xs flex-1 truncate">{e.title}</span>
+              <button onClick={() => deleteEntry(e.id)} className="text-red-400/50 hover:text-red-400 text-xs transition-colors flex-shrink-0">✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Add form */}
+      <div className="space-y-2 pt-1 border-t border-white/8">
+        <div className="grid grid-cols-2 gap-1.5">
+          <div>
+            <label className="text-[10px] text-white/30 mb-0.5 block">Başlangıç</label>
+            <input type="time" value={form.startTime} onChange={e => setForm(p => ({ ...p, startTime: e.target.value }))} className="input w-full text-xs" />
+          </div>
+          <div>
+            <label className="text-[10px] text-white/30 mb-0.5 block">Bitiş</label>
+            <input type="time" value={form.endTime} onChange={e => setForm(p => ({ ...p, endTime: e.target.value }))} className="input w-full text-xs" />
+          </div>
+        </div>
+        <input
+          value={form.title}
+          onChange={e => setForm(p => ({ ...p, title: e.target.value }))}
+          placeholder="Program adı *"
+          className="input w-full text-xs"
+        />
+        <input
+          value={form.description}
+          onChange={e => setForm(p => ({ ...p, description: e.target.value }))}
+          placeholder="Açıklama (isteğe bağlı)"
+          className="input w-full text-xs"
+        />
+        <button
+          onClick={addEntry}
+          disabled={saving || !form.title.trim() || !form.startTime || !form.endTime}
+          className="w-full py-1.5 rounded-lg text-xs font-semibold bg-indigo-600/70 hover:bg-indigo-600 text-white border border-indigo-500/40 disabled:opacity-40 transition-all"
+        >
+          {saving ? 'Ekleniyor…' : '+ Program Ekle'}
+        </button>
       </div>
     </div>
   );

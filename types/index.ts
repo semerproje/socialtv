@@ -198,6 +198,7 @@ export interface LiveChannel {
 
 export interface LivePlaybackSource {
   title: string;
+  channelId?: string;
   provider?: LiveProvider;
   playbackMode: LivePlaybackMode;
   streamUrl?: string;
@@ -216,6 +217,21 @@ export interface ChannelHealthCheck {
   statusCode?: number;
   message: string;
   target?: string;
+}
+
+export interface EPGEntry {
+  id: string;
+  channelId: string;
+  /** Program title */
+  title: string;
+  /** Start time HH:MM (24h) */
+  startTime: string;
+  /** End time HH:MM (24h) */
+  endTime: string;
+  description?: string;
+  /** Date YYYY-MM-DD */
+  date: string;
+  createdAt: string;
 }
 
 export interface ChannelHealthLog {

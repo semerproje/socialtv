@@ -187,6 +187,7 @@ export default function MainScreen({ screenId: urlScreenId }: MainScreenProps) {
         case 'live_tv':
           if (channel) {
             setStreamPlayback({
+              channelId: channel.id,
               title: channel.title,
               provider: channel.provider,
               playbackMode: channel.playbackMode,
@@ -259,6 +260,7 @@ export default function MainScreen({ screenId: urlScreenId }: MainScreenProps) {
         case 'play_stream': {
           const d = cmd.data ?? {};
           setStreamPlayback({
+            channelId: d.channelId as string | undefined,
             title: String(d.title ?? 'Canlı Yayın'),
             provider: d.provider as LivePlaybackSource['provider'],
             playbackMode: (d.playbackMode as LivePlaybackSource['playbackMode']) ?? 'native',

@@ -715,6 +715,46 @@ function SplitTwoLayout({
 function FullscreenLayout({
   youtubeVideo, instagramPosts, liveStream, news, tickers, primaryColor, igSlideDuration, onYouTubeEnded,
 }: CommonProps & { youtubeVideo: any; instagramPosts: InstagramPostData[]; liveStream?: LivePlaybackSource | null; news?: NewsItem[]; onYouTubeEnded: () => void }) {
+  // ── EPG overlay for live streams ─────────────────────────────────────────
+  const [epgNow, setEpgNow] = useState<{ title: string; startTime: string; endTime: string } | null>(null);
+  const [epgNext, setEpgNext] = useState<{ title: string; startTime: string } | null>(null);
+
+  useEffect(() => {
+    if (!liveStream?.channelId) { setEpgNow(null); setEpgNext(null); return; }
+    const today = new Date().toISOString().slice(0, 10);
+    fetch(`/api/tv-channels/epg?channelId=${liveStream.channelId}&date=${today}`)
+      .then(r => r.ok ? r.json() : { data: [] })
+      .then(json => {
+        const entries: Array<{ title: string; startTime: string; endTime: string }> = json.data ?? [];
+        if (entries.length === 0) return;
+        const nowMins = new Date().getHours() * 60 + new Date().getMinutes();
+        const toMins = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+        const current = entries.find(e => toMins(e.startTime) <= nowMins && toMins(e.endTime) > nowMins) ?? null;
+        const next = entries.find(e => toMins(e.startTime) > nowMins) ?? null;
+        setEpgNow(current);
+        setEpgNext(next);
+      })
+      .catch(() => {});
+  }, [liveStream?.channelId]);
+
+  // Refresh EPG every minute
+  useEffect(() => {
+    if (!liveStream?.channelId) return;
+    const t = setInterval(() => {
+      const today = new Date().toISOString().slice(0, 10);
+      fetch(`/api/tv-channels/epg?channelId=${liveStream.channelId}&date=${today}`)
+        .then(r => r.ok ? r.json() : { data: [] })
+        .then(json => {
+          const entries: Array<{ title: string; startTime: string; endTime: string }> = json.data ?? [];
+          const nowMins = new Date().getHours() * 60 + new Date().getMinutes();
+          const toMins = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+          setEpgNow(entries.find(e => toMins(e.startTime) <= nowMins && toMins(e.endTime) > nowMins) ?? null);
+          setEpgNext(entries.find(e => toMins(e.startTime) > nowMins) ?? null);
+        })
+        .catch(() => {});
+    }, 60_000);
+    return () => clearInterval(t);
+  }, [liveStream?.channelId]);
   return (
     <div className="relative w-full h-full overflow-hidden">
       {liveStream?.playbackMode === 'iframe' && liveStream.embedUrl ? (
@@ -743,6 +783,35 @@ function FullscreenLayout({
           <p className="text-[10px] uppercase tracking-[0.2em] text-emerald-300/80 font-semibold">Canlı Yayın</p>
           <p className="text-white text-sm font-medium mt-0.5">{liveStream.title}</p>
         </div>
+      )}
+      {/* EPG overlay — bottom-right */}
+      {liveStream && (epgNow || epgNext) && (
+        <AnimatePresence>
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="absolute bottom-12 right-4 z-20 px-3 py-2 rounded-xl bg-black/60 backdrop-blur-md border border-white/10 min-w-[180px] max-w-[260px]"
+          >
+            {epgNow && (
+              <div className="flex items-start gap-2">
+                <span className="text-emerald-400 text-[9px] font-bold mt-0.5 flex-shrink-0">▶ ŞİMDİ</span>
+                <div>
+                  <p className="text-white text-xs font-semibold leading-tight">{epgNow.title}</p>
+                  <p className="text-white/40 text-[10px] tabular-nums">{epgNow.startTime} – {epgNow.endTime}</p>
+                </div>
+              </div>
+            )}
+            {epgNext && (
+              <div className={`flex items-start gap-2 ${epgNow ? 'mt-2 pt-2 border-t border-white/10' : ''}`}>
+                <span className="text-white/30 text-[9px] font-bold mt-0.5 flex-shrink-0">SONRA</span>
+                <div>
+                  <p className="text-white/60 text-xs leading-tight">{epgNext.title}</p>
+                  <p className="text-white/30 text-[10px] tabular-nums">{epgNext.startTime}</p>
+                </div>
+              </div>
+            )}
+          </motion.div>
+        </AnimatePresence>
       )}
       {tickers?.length > 0 && (
         <div className="absolute bottom-0 left-0 right-0 z-20">
