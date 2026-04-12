@@ -958,7 +958,17 @@ function PromoLayout({
                 <>
                   {item.mediaType === 'VIDEO'
                     ? <video src={item.mediaUrl} className="absolute inset-0 w-full h-full object-cover" autoPlay muted loop playsInline />
-                    : <img src={item.mediaUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                    : (
+                      <motion.img
+                        key={item.id + idx + '-img'}
+                        src={item.mediaUrl}
+                        alt=""
+                        className="absolute inset-0 w-full h-full object-cover"
+                        initial={{ scale: 1.0 }}
+                        animate={{ scale: 1.08 }}
+                        transition={{ duration: igSlideDuration / 1000, ease: 'linear' }}
+                      />
+                    )
                   }
                   <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(2,8,23,0.92) 0%, rgba(2,8,23,0.3) 50%, transparent 100%)' }} />
                 </>

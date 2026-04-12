@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { useSwipeable } from 'react-swipeable';
 import toast from 'react-hot-toast';
 import type { Content } from '@/types';
@@ -72,7 +73,9 @@ export default function ContentPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiAnalyzing, setAiAnalyzing] = useState<string | null>(null);
+  const [aiToAdId, setAiToAdId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const router = useRouter();
 
   const fetchContent = useCallback(async () => {
     try {
@@ -146,6 +149,72 @@ export default function ContentPage() {
       }
     } finally {
       setAiAnalyzing(null);
+    }
+  };
+
+  const handleConvertToAd = async (item: Content) => {
+    setAiToAdId(item.id);
+    try {
+      // 1. Generate ad copy via AI
+      const aiRes = await fetch('/api/ai/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'ad_copy',
+          offer: item.text.slice(0, 300),
+          business: item.author ?? 'Social Lounge',
+          tone: 'enerjik ve davetkar',
+        }),
+      });
+      const aiData = await aiRes.json();
+      if (!aiData.success) throw new Error(aiData.error ?? 'AI hatası');
+
+      const copy = aiData.data as {
+        headline?: string; subheadline?: string; body?: string; cta?: string; badge?: string;
+      };
+
+      // 2. Determine ad type and content
+      const adType = item.mediaUrl ? (item.mediaType === 'video' ? 'video' : 'image') : 'text';
+      const adContent = item.mediaUrl ?? copy.body ?? item.text.slice(0, 120);
+      const adTitle = copy.headline ?? item.author ?? 'AI Reklamı';
+      const adDescription = [copy.subheadline, copy.body, copy.cta].filter(Boolean).join(' · ');
+
+      // 3. Create ad draft (inactive)
+      const adRes = await fetch('/api/ads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: adTitle,
+          description: adDescription,
+          type: adType,
+          content: adContent,
+          thumbnailUrl: item.mediaUrl ?? undefined,
+          isActive: false,
+          aiGenerated: true,
+          aiPrompt: item.text.slice(0, 500),
+        }),
+      });
+      const adData = await adRes.json();
+      if (!adData.success) throw new Error(adData.error ?? 'Reklam oluşturulamadı');
+
+      toast.success(
+        (t) => (
+          <span>
+            Reklam taslağı oluşturuldu!{' '}
+            <button
+              className="underline font-semibold"
+              onClick={() => { toast.dismiss(t.id); router.push('/admin/ads'); }}
+            >
+              Reklamlara git →
+            </button>
+          </span>
+        ),
+        { duration: 6000 },
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Dönüştürme başarısız');
+    } finally {
+      setAiToAdId(null);
     }
   };
 
@@ -485,8 +554,17 @@ export default function ContentPage() {
                   onClick={() => handleAIAnalyze(item.id, item.text)}
                   disabled={aiAnalyzing === item.id}
                   className="text-xs px-2 py-1 rounded-lg bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 transition-colors disabled:opacity-50"
+                  title="AI Analiz"
                 >
                   {aiAnalyzing === item.id ? '⏳' : '🤖'}
+                </button>
+                <button
+                  onClick={() => handleConvertToAd(item)}
+                  disabled={aiToAdId === item.id}
+                  className="text-xs px-2 py-1 rounded-lg bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 transition-colors disabled:opacity-50"
+                  title="AI ile Reklama Dönüştür"
+                >
+                  {aiToAdId === item.id ? '⏳' : '🎯'}
                 </button>
                 <button onClick={() => handleDelete(item.id)} className="text-xs px-2 py-1 rounded-lg bg-white/5 text-tv-muted hover:bg-red-500/10 hover:text-red-400 transition-colors">
                   🗑️
