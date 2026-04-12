@@ -89,6 +89,219 @@ function eventHeight(startAt: string, endAt?: string): number {
   return Math.max(2, (diff / (24 * 60 * 60 * 1000)) * 100);
 }
 
+// ─── AI Weekly Generator Modal ────────────────────────────────────────────────
+
+interface AIWeekPreview {
+  title: string;
+  type: string;
+  layoutType?: string;
+  startAt: string;
+  endAt?: string;
+  recurrence: string;
+  priority: string;
+  color?: string;
+}
+
+interface AIWeeklyModalProps {
+  weekStart: Date;
+  onClose: () => void;
+  onImport: (events: AIWeekPreview[]) => Promise<void>;
+}
+
+function AIWeeklyModal({ weekStart, onClose, onImport }: AIWeeklyModalProps) {
+  const [generating, setGenerating] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [narrative, setNarrative] = useState<string | null>(null);
+  const [preview, setPreview] = useState<AIWeekPreview[]>([]);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [businessCtx, setBusinessCtx] = useState('Social Lounge — modern bar & lounge');
+
+  const generate = async () => {
+    setGenerating(true);
+    setPreview([]);
+    setNarrative(null);
+    try {
+      const res = await fetch('/api/ai/schedule-generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'weekly',
+          weekStart: weekStart.toISOString().slice(0, 10),
+          businessContext: businessCtx,
+          autoSave: false,
+        }),
+      });
+      const d = await res.json();
+      if (!d.success) throw new Error(d.error ?? 'Üretim başarısız');
+      const evs: AIWeekPreview[] = d.data.events ?? [];
+      setPreview(evs);
+      setNarrative(d.data.narrative ?? null);
+      setSelected(new Set(evs.map((_, i) => i)));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Hata');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleImport = async () => {
+    const toImport = preview.filter((_, i) => selected.has(i));
+    if (toImport.length === 0) { toast.error('En az bir etkinlik seçin'); return; }
+    setImporting(true);
+    try {
+      await onImport(toImport);
+      toast.success(`${toImport.length} etkinlik takvime eklendi`);
+      onClose();
+    } catch {
+      toast.error('İçe aktarma başarısız');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const toggleAll = () => {
+    if (selected.size === preview.length) setSelected(new Set());
+    else setSelected(new Set(preview.map((_, i) => i)));
+  };
+
+  const typeIcon: Record<string, string> = {
+    layout: '⊞', youtube: '▶', instagram: '◈', markets: '📈',
+    news: '📰', announcement: '📢', content: '🖼', live_tv: '📡',
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 12 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        className="w-full max-w-2xl rounded-2xl border border-white/10 shadow-2xl flex flex-col max-h-[88vh]"
+        style={{ background: '#0f1117' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between p-5 border-b flex-shrink-0" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+          <div>
+            <h3 className="text-white font-bold flex items-center gap-2">
+              🤖 AI Haftalık Program Oluştur
+            </h3>
+            <p className="text-white/35 text-xs mt-0.5">Yapay zeka ile otomatik haftalık yayın takvimi</p>
+          </div>
+          <button onClick={onClose} className="text-white/30 hover:text-white/60 transition-colors text-xl">×</button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {/* Business context */}
+          <div>
+            <label className="text-xs text-white/40 font-medium mb-1.5 block">İşletme Bağlamı</label>
+            <input
+              className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500/50 placeholder:text-white/20"
+              value={businessCtx}
+              onChange={(e) => setBusinessCtx(e.target.value)}
+              placeholder="Örn: Espresso Bar, canlı müzik, genç kitle..."
+            />
+          </div>
+
+          {/* Generate button */}
+          {preview.length === 0 && (
+            <button
+              onClick={generate}
+              disabled={generating}
+              className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {generating ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Program oluşturuluyor…
+                </>
+              ) : '✨ Haftalık Program Oluştur'}
+            </button>
+          )}
+
+          {/* Narrative */}
+          {narrative && (
+            <div className="px-4 py-3 rounded-xl bg-indigo-500/[0.08] border border-indigo-500/20 text-indigo-200/70 text-xs leading-relaxed">
+              {narrative}
+            </div>
+          )}
+
+          {/* Preview list */}
+          {preview.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-white/40 font-medium">{preview.length} etkinlik oluşturuldu</span>
+                <button onClick={toggleAll} className="text-xs text-indigo-400 hover:text-indigo-300">
+                  {selected.size === preview.length ? 'Tümünü Kaldır' : 'Tümünü Seç'}
+                </button>
+              </div>
+              <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+                {preview.map((ev, i) => {
+                  const d = new Date(ev.startAt);
+                  const dateStr = `${DAYS_TR[d.getDay()]} ${d.getDate()} ${MONTHS_TR[d.getMonth()]} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+                  return (
+                    <label
+                      key={i}
+                      className={cn(
+                        'flex items-start gap-3 px-3 py-2.5 rounded-xl border cursor-pointer transition-all',
+                        selected.has(i)
+                          ? 'border-indigo-500/30 bg-indigo-500/[0.06]'
+                          : 'border-white/[0.06] bg-white/[0.02] opacity-50',
+                      )}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selected.has(i)}
+                        onChange={() => setSelected((prev) => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; })}
+                        className="mt-0.5 accent-indigo-500 flex-shrink-0 cursor-pointer"
+                      />
+                      <div
+                        className="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0"
+                        style={{ background: ev.color ?? '#6366f1' }}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white/85 text-xs font-medium truncate">
+                          {typeIcon[ev.type] ?? '•'} {ev.title}
+                        </p>
+                        <p className="text-white/30 text-[11px] mt-0.5">{dateStr}</p>
+                      </div>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-white/[0.05] text-white/30 flex-shrink-0 capitalize">
+                        {ev.type}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="p-5 border-t flex gap-3 flex-shrink-0" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+          {preview.length > 0 && (
+            <button
+              onClick={generate}
+              disabled={generating}
+              className="px-4 py-2 rounded-xl text-sm font-medium border border-white/[0.08] text-white/50 hover:text-white hover:bg-white/5 transition-all disabled:opacity-40"
+            >
+              {generating ? '⏳' : '↺ Yeniden Oluştur'}
+            </button>
+          )}
+          <div className="flex-1" />
+          <button onClick={onClose} className="btn-secondary text-sm">İptal</button>
+          {preview.length > 0 && (
+            <button
+              onClick={handleImport}
+              disabled={importing || selected.size === 0}
+              className="btn-primary text-sm disabled:opacity-50"
+            >
+              {importing ? '⏳ Ekleniyor…' : `✓ ${selected.size} Etkinlik Ekle`}
+            </button>
+          )}
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
 // ─── Event Form Modal ─────────────────────────────────────────────────────────
 
 interface EventFormProps {
@@ -318,6 +531,7 @@ export default function SchedulePage() {
   const [channels, setChannels] = useState<LiveChannel[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [showAIWeekly, setShowAIWeekly] = useState(false);
   const [editingEvent, setEditingEvent] = useState<ScheduleEvent | null>(null);
   const [newEventDefaults, setNewEventDefaults] = useState<Partial<ScheduleEvent>>({});
 
@@ -349,6 +563,27 @@ export default function SchedulePage() {
   }, []);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  const handleBulkImport = useCallback(async (evs: AIWeekPreview[]) => {
+    await Promise.all(evs.map((ev) =>
+      fetch('/api/schedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: ev.title,
+          type: ev.type,
+          layoutType: ev.layoutType,
+          startAt: ev.startAt,
+          endAt: ev.endAt,
+          recurrence: ev.recurrence ?? 'once',
+          priority: ev.priority ?? 'normal',
+          color: ev.color,
+          isActive: true,
+        }),
+      })
+    ));
+    await fetchAll();
+  }, [fetchAll]);
 
   const handleSave = async (data: Partial<ScheduleEvent>) => {
     if (editingEvent?.id) {
@@ -491,6 +726,12 @@ export default function SchedulePage() {
               →
             </button>
           </div>
+          <button
+            onClick={() => setShowAIWeekly(true)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-indigo-500/30 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20 transition-all text-sm font-medium"
+          >
+            🤖 AI Program
+          </button>
           <button
             onClick={() => { setEditingEvent(null); setNewEventDefaults({}); setShowForm(true); }}
             className="btn-primary text-sm"
@@ -639,6 +880,13 @@ export default function SchedulePage() {
             onSave={handleSave}
             onClose={() => { setShowForm(false); setEditingEvent(null); }}
             onDelete={editingEvent?.id ? () => handleDelete(editingEvent.id) : undefined}
+          />
+        )}
+        {showAIWeekly && (
+          <AIWeeklyModal
+            weekStart={weekStart}
+            onClose={() => setShowAIWeekly(false)}
+            onImport={handleBulkImport}
           />
         )}
       </AnimatePresence>

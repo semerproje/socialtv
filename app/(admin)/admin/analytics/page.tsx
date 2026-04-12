@@ -52,6 +52,8 @@ export default function AnalyticsPage() {
   const [days, setDays] = useState(7);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState(0);
+  const [aiSuggestions, setAiSuggestions] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
 
   const fetchData = useCallback(() => {
     setLoading(true);
@@ -122,6 +124,34 @@ export default function AnalyticsPage() {
   const sentimentTotal = contentSentiment.reduce((s, p) => s + p.count, 0) || 1;
   const sentimentColors: Record<string, string> = { positive: '#10b981', pozitif: '#10b981', neutral: '#6366f1', nötr: '#6366f1', negative: '#ef4444', negatif: '#ef4444' };
   const skel = <span className="inline-block w-16 h-6 bg-white/10 animate-pulse rounded" />;
+
+  const fetchAISuggestions = useCallback(async () => {
+    setAiLoading(true);
+    setAiSuggestions(null);
+    try {
+      const totalImpressions = (stats?.totalImpressions as number) ?? 0;
+      const totalCompletions = (stats?.totalCompletions as number) ?? 0;
+      const cr = totalImpressions > 0 ? ((totalCompletions / totalImpressions) * 100).toFixed(1) : '0';
+      const topPlatform = platformBreakdown[0]?.platform ?? 'bilinmiyor';
+      const dominantSentiment = contentSentiment.sort((a, b) => b.count - a.count)[0]?.sentiment ?? 'nötr';
+      const lowCRads = adPerformance.filter((a) => a.impressions > 0 && a.cr < avgCR * 0.7).map((a) => a.title).slice(0, 3);
+      const context = `Son ${days} günlük analitik: ${totalImpressions} gösterim, %${cr} tamamlanma oranı. ` +
+        `En çok içerik platformu: ${topPlatform}. Baskın duygu: ${dominantSentiment}. ` +
+        (lowCRads.length ? `Düşük performanslı reklamlar: ${lowCRads.join(', ')}.` : 'Tüm reklamlar performanslı.');
+      const res = await fetch('/api/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: `Aşağıdaki analitik veriye göre içerik stratejisi önerileri ver. Somut, uygulanabilir 5 öneri oluştur. Her öneriyi kısa madde olarak sun.\n\n${context}` }],
+          includeContext: false,
+        }),
+      });
+      const d = await res.json();
+      if (d.success) setAiSuggestions(d.data.reply);
+    } catch { /* silent */ } finally {
+      setAiLoading(false);
+    }
+  }, [stats, days, platformBreakdown, contentSentiment, adPerformance, avgCR]);
 
   return (
     <div className="p-8 space-y-6">
@@ -360,6 +390,7 @@ export default function AnalyticsPage() {
 
       {/* ── TAB 3: İçerik ── */}
       {tab === 3 && (
+        <div className="space-y-6">
         <div className="grid grid-cols-2 gap-6">
           <div className="admin-card">
             <h2 className="font-semibold text-tv-text mb-4 text-sm">Platform Dağılımı</h2>
@@ -416,6 +447,54 @@ export default function AnalyticsPage() {
               </>
             )}
           </div>
+        </div>
+
+        {/* AI Önerileri panel */}
+        <div className="admin-card">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="font-semibold text-tv-text text-sm">🤖 AI İçerik Önerileri</h2>
+              <p className="text-xs text-tv-muted mt-0.5">Mevcut analitik veriye dayanarak AI'dan içerik stratejisi al</p>
+            </div>
+            <button
+              onClick={fetchAISuggestions}
+              disabled={aiLoading || loading}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600/80 hover:bg-indigo-600 text-white text-xs font-semibold transition-all disabled:opacity-50"
+            >
+              {aiLoading ? (
+                <>
+                  <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Analiz ediliyor…
+                </>
+              ) : (
+                '✨ AI Analiz Et'
+              )}
+            </button>
+          </div>
+          {aiSuggestions ? (
+            <div className="prose prose-invert prose-sm max-w-none">
+              <div className="space-y-2">
+                {aiSuggestions.split('\n').filter(Boolean).map((line, i) => {
+                  const isBullet = /^[-•*\d]/.test(line.trim());
+                  return (
+                    <p
+                      key={i}
+                      className={`text-sm leading-relaxed ${isBullet ? 'pl-3 border-l-2 border-indigo-500/40 text-tv-text/85' : 'text-tv-muted'}`}
+                    >
+                      {line.replace(/^[-•*]\s*/, '')}
+                    </p>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-10 text-tv-muted">
+              <p className="text-3xl mb-3 opacity-30">🎯</p>
+              <p className="text-sm">Analitik verilerinize göre kişiselleştirilmiş öneriler almak için</p>
+              <p className="text-sm font-medium text-indigo-400 mt-1">AI Analiz Et butonuna tıklayın</p>
+            </div>
+          )}
+        </div>
         </div>
       )}
 
