@@ -196,7 +196,7 @@ function ScreenCard({
   selected: boolean;
   onSelect: () => void;
   onCommand: (event: string, data?: Record<string, unknown>) => void;
-  onLayoutChange: (layout: string) => void;
+  onLayoutChange: (layout: string, mainContentSource?: string) => void;
   onDelete: () => void;
   onEdit: () => void;
   onCopyUrl: () => void;
@@ -204,6 +204,7 @@ function ScreenCard({
   const [expanded, setExpanded] = useState(false);
   const [ytUrl, setYtUrl] = useState('');
   const [msg, setMsg] = useState('');
+  const [contentSource, setContentSource] = useState('auto');
 
   const sendYt = () => {
     const id = extractYouTubeId(ytUrl);
@@ -332,11 +333,34 @@ function ScreenCard({
               {/* Layout grid */}
               <div>
                 <p className="text-[11px] text-tv-muted uppercase tracking-wider mb-2">Layout</p>
+                {/* Content source selector */}
+                <div className="flex gap-1.5 mb-2.5">
+                  {[
+                    { value: 'auto',      label: '◉ Otomatik', title: 'Mevcut içeriğe göre otomatik seçer' },
+                    { value: 'youtube',   label: '▶ YouTube',  title: 'Ana alanda YouTube videosu' },
+                    { value: 'instagram', label: '◈ Instagram', title: 'Ana alanda Instagram içeriği' },
+                    { value: 'news',      label: '📰 Haber',   title: 'Ana alanda Google News haberleri' },
+                    { value: 'social',    label: '◎ Sosyal',   title: 'Ana alanda sosyal medya içerikleri' },
+                  ].map((s) => (
+                    <button
+                      key={s.value}
+                      title={s.title}
+                      onClick={() => setContentSource(s.value)}
+                      className={`flex-1 py-1 rounded-lg text-[10px] font-medium border transition-all truncate ${
+                        contentSource === s.value
+                          ? 'bg-indigo-500/25 border-indigo-500/50 text-indigo-300'
+                          : 'bg-white/3 border-white/8 text-tv-muted hover:bg-white/8'
+                      }`}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
                 <div className="grid grid-cols-3 gap-1.5">
                   {LAYOUTS.map((l) => (
                     <button
                       key={l.value}
-                      onClick={() => { onLayoutChange(l.value); toast.success(`${l.label} layout uygulandı`); }}
+                      onClick={() => { onLayoutChange(l.value, contentSource); toast.success(`${l.label} layout uygulandı`); }}
                       className={`flex flex-col items-center gap-1 p-2 rounded-xl border text-center transition-all ${
                         screen.layoutType === l.value
                           ? 'bg-indigo-500/20 border-indigo-500/40 text-indigo-300'
@@ -574,13 +598,13 @@ export default function ScreensPage() {
     fetchData();
   };
 
-  const changeLayout = async (screenId: string, layoutType: string) => {
+  const changeLayout = async (screenId: string, layoutType: string, mainContentSource?: string) => {
     await fetch(`/api/screens?id=${screenId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ layoutType }),
     });
-    await broadcast('change_layout', { layoutType }, screenId);
+    await broadcast('change_layout', { layoutType, ...(mainContentSource ? { mainContentSource } : {}) }, screenId);
     fetchData();
   };
 
@@ -841,7 +865,7 @@ export default function ScreensPage() {
                   selected={selected.has(screen.id)}
                   onSelect={() => toggleSelect(screen.id)}
                   onCommand={(event, data) => broadcast(event, data ?? {}, screen.id)}
-                  onLayoutChange={(layout) => changeLayout(screen.id, layout)}
+                  onLayoutChange={(layout, mainContentSource) => changeLayout(screen.id, layout, mainContentSource)}
                   onDelete={() => deleteScreen(screen.id)}
                   onEdit={() => openEditModal(screen)}
                   onCopyUrl={() => copyUrl(`/screen?id=${screen.id}`)}

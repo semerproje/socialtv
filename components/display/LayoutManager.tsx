@@ -40,6 +40,8 @@ export type LayoutType =
 
 interface OverlayMessage { text: string; color?: string; }
 
+export type MainContentSource = 'auto' | 'youtube' | 'instagram' | 'news' | 'social';
+
 interface LayoutManagerProps {
   layout: LayoutType;
   data: DisplayData;
@@ -52,6 +54,7 @@ interface LayoutManagerProps {
   onYouTubeEnded: () => void;
   primaryColor: string;
   secondaryColor: string;
+  mainContentSource?: MainContentSource;
 }
 
 // ─── Shared helpers ────────────────────────────────────────────────────────────
@@ -278,6 +281,7 @@ export default function LayoutManager({
   onYouTubeEnded,
   primaryColor,
   secondaryColor,
+  mainContentSource = 'auto',
 }: LayoutManagerProps) {
   const settings = data.settings ?? {};
   const approved = (data.content ?? []).filter((c) => c.isApproved);
@@ -347,8 +351,12 @@ export default function LayoutManager({
               highlight={highlight}
               highlights={approved.filter((c) => c.isHighlight || c.isFeatured)}
               feedContent={feedContent}
+              youtubeVideo={currentYT}
+              instagramPosts={instagramPosts}
               qrUrl={qrUrl}
               news={data.news}
+              mainContentSource={mainContentSource}
+              onYouTubeEnded={onYouTubeEnded}
               {...common}
             />
           )}
@@ -423,7 +431,11 @@ export default function LayoutManager({
             <NewsFocusLayout
               highlight={highlight}
               feedContent={feedContent}
+              instagramPosts={instagramPosts}
+              youtubeVideo={currentYT}
               news={data.news}
+              mainContentSource={mainContentSource}
+              onYouTubeEnded={onYouTubeEnded}
               {...common}
             />
           )}
@@ -479,19 +491,53 @@ export default function LayoutManager({
 
 // ─── 1. Default ───────────────────────────────────────────────────────────────
 function DefaultLayout({
-  highlight, highlights, feedContent, news, tickers, weather, primaryColor, secondaryColor, igSlideDuration, qrUrl,
-}: CommonProps & { highlight: any; highlights: any[]; feedContent: any[]; news?: NewsItem[]; qrUrl: string }) {
+  highlight, highlights, feedContent, news, youtubeVideo, instagramPosts, mainContentSource = 'auto',
+  tickers, weather, primaryColor, secondaryColor, igSlideDuration, qrUrl, onYouTubeEnded,
+}: CommonProps & {
+  highlight: any; highlights: any[]; feedContent: any[]; news?: NewsItem[]; qrUrl: string;
+  youtubeVideo?: { videoId: string; title?: string } | null;
+  instagramPosts?: InstagramPostData[];
+  mainContentSource?: MainContentSource;
+  onYouTubeEnded?: () => void;
+}) {
+  // Determine main zone content
+  const effectiveSource: MainContentSource = (() => {
+    if (mainContentSource !== 'auto') return mainContentSource;
+    if (highlight || highlights.length > 0) return 'social';
+    if (youtubeVideo) return 'youtube';
+    if (instagramPosts && instagramPosts.length > 0) return 'instagram';
+    return 'news';
+  })();
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <HeaderBar primaryColor={primaryColor} weather={weather} />
       <div className="flex flex-1 min-h-0 gap-3 p-3 overflow-hidden">
-        <div className="flex-1 min-w-0 min-h-0 overflow-hidden">
-          {highlight || highlights.length > 0
-            ? <AIHighlight content={highlight} highlights={highlights} primaryColor={primaryColor} secondaryColor={secondaryColor} />
-            : <div className="h-full relative overflow-hidden rounded-2xl" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                {news && news.length > 0 ? <NewsHeroFallback news={news} primaryColor={primaryColor} /> : <EmptyState />}
-              </div>
-          }
+        <div className="flex-1 min-w-0 min-h-0 overflow-hidden relative">
+          {effectiveSource === 'youtube' && youtubeVideo && (
+            <YouTubePlayer videoId={youtubeVideo.videoId} title={youtubeVideo.title} muted autoplay loop onEnded={onYouTubeEnded} className="absolute inset-0 w-full h-full" />
+          )}
+          {effectiveSource === 'instagram' && instagramPosts && instagramPosts.length > 0 && (
+            <InstagramCarousel posts={instagramPosts} slideDuration={igSlideDuration} />
+          )}
+          {effectiveSource === 'social' && (highlight || highlights.length > 0) && (
+            <AIHighlight content={highlight} highlights={highlights} primaryColor={primaryColor} secondaryColor={secondaryColor} />
+          )}
+          {effectiveSource === 'news' && (
+            <div className="absolute inset-0 rounded-2xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}>
+              {news && news.length > 0 ? <NewsHeroFallback news={news} primaryColor={primaryColor} /> : <EmptyState />}
+            </div>
+          )}
+          {effectiveSource === 'youtube' && !youtubeVideo && (
+            <div className="absolute inset-0 rounded-2xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}>
+              {news && news.length > 0 ? <NewsHeroFallback news={news} primaryColor={primaryColor} /> : <EmptyState />}
+            </div>
+          )}
+          {effectiveSource === 'instagram' && (!instagramPosts || instagramPosts.length === 0) && (
+            <div className="absolute inset-0 rounded-2xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}>
+              {news && news.length > 0 ? <NewsHeroFallback news={news} primaryColor={primaryColor} /> : <EmptyState />}
+            </div>
+          )}
         </div>
         <div className="w-72 flex flex-col gap-3 overflow-hidden flex-shrink-0">
           {qrUrl && <QRWidget url={qrUrl} />}
@@ -1028,8 +1074,17 @@ function TripleLayout({
 
 // ─── 11. News Focus ───────────────────────────────────────────────────────────
 function NewsFocusLayout({
-  highlight, feedContent, news, tickers, weather, primaryColor, secondaryColor, igSlideDuration,
-}: CommonProps & { highlight: any; feedContent: any[]; news?: import('@/types').NewsItem[] }) {
+  highlight, feedContent, news, instagramPosts, youtubeVideo, mainContentSource = 'auto',
+  tickers, weather, primaryColor, secondaryColor, igSlideDuration, onYouTubeEnded,
+}: CommonProps & {
+  highlight: any;
+  feedContent: any[];
+  news?: import('@/types').NewsItem[];
+  instagramPosts?: InstagramPostData[];
+  youtubeVideo?: { videoId: string; title?: string } | null;
+  mainContentSource?: MainContentSource;
+  onYouTubeEnded?: () => void;
+}) {
   const [newsIdx, setNewsIdx] = useState(0);
   const liveNews = news && news.length > 0 ? news : null;
 
@@ -1041,6 +1096,16 @@ function NewsFocusLayout({
 
   const currentNews = liveNews?.[newsIdx] ?? null;
 
+  // Determine what to show in the main area
+  const effectiveSource: MainContentSource = (() => {
+    if (mainContentSource !== 'auto') return mainContentSource;
+    if (youtubeVideo) return 'youtube';
+    if (instagramPosts && instagramPosts.length > 0) return 'instagram';
+    if (liveNews) return 'news';
+    if (highlight) return 'social';
+    return 'news';
+  })();
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Top ticker */}
@@ -1050,11 +1115,11 @@ function NewsFocusLayout({
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Left branded panel */}
         <div
-          className="w-80 flex-shrink-0 flex flex-col overflow-hidden"
+          className="w-72 flex-shrink-0 flex flex-col overflow-hidden"
           style={{ background: 'rgba(2,8,23,0.97)', borderRight: '1px solid rgba(255,255,255,0.06)' }}
         >
           {/* Logo + clock */}
-          <div className="flex flex-col items-center gap-6 p-6 flex-shrink-0">
+          <div className="flex flex-col items-center gap-5 p-6 flex-shrink-0">
             <img src="/logo.png" alt="" className="h-10 w-auto object-contain" />
             <div className="w-10 h-px" style={{ background: `linear-gradient(90deg, transparent, ${primaryColor}80, transparent)` }} />
             <ClockWidget />
@@ -1065,120 +1130,137 @@ function NewsFocusLayout({
               </>
             )}
           </div>
-          {/* Live news list */}
+          {/* Side content list — always shows news regardless of main source */}
           {liveNews && liveNews.length > 0 && (
             <div className="flex-1 min-h-0 overflow-hidden px-4 pb-4">
-              <div
-                className="w-full h-px mb-3"
-                style={{ background: `linear-gradient(90deg, transparent, ${primaryColor}40, transparent)` }}
-              />
-              <p
-                className="text-[10px] font-bold tracking-[0.2em] uppercase mb-3"
-                style={{ color: primaryColor }}
-              >
+              <div className="w-full h-px mb-3" style={{ background: `linear-gradient(90deg, transparent, ${primaryColor}40, transparent)` }} />
+              <p className="text-[10px] font-bold tracking-[0.2em] uppercase mb-3" style={{ color: primaryColor }}>
                 📰 Gündem
               </p>
-              <div className="flex flex-col gap-1.5 overflow-hidden h-full">
-                <AnimatePresence mode="wait">
-                  {liveNews.slice(0, 6).map((item, i) => (
-                    <motion.div
-                      key={item.id}
-                      initial={{ opacity: 0, x: -8 }}
-                      animate={{ opacity: i === newsIdx % 6 ? 1 : 0.45, x: 0 }}
-                      transition={{ duration: 0.35, delay: i * 0.04 }}
-                      className="flex flex-col gap-0.5 px-3 py-2 rounded-xl cursor-default"
-                      style={{
-                        background: i === newsIdx % 6 ? `${primaryColor}15` : 'rgba(255,255,255,0.03)',
-                        border: `1px solid ${i === newsIdx % 6 ? `${primaryColor}30` : 'rgba(255,255,255,0.05)'}`,
-                      }}
-                    >
-                      <p className="text-white/85 text-[11px] font-medium leading-snug line-clamp-2">{item.title}</p>
-                      <p className="text-white/30 text-[10px]">{item.source}</p>
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
+              <div className="flex flex-col gap-1.5 overflow-hidden">
+                {liveNews.slice(0, 6).map((item, i) => (
+                  <motion.div
+                    key={item.id}
+                    initial={{ opacity: 0, x: -8 }}
+                    animate={{ opacity: i === newsIdx % 6 ? 1 : 0.45, x: 0 }}
+                    transition={{ duration: 0.35, delay: i * 0.04 }}
+                    className="flex flex-col gap-0.5 px-3 py-2 rounded-xl"
+                    style={{
+                      background: i === newsIdx % 6 ? `${primaryColor}15` : 'rgba(255,255,255,0.03)',
+                      border: `1px solid ${i === newsIdx % 6 ? `${primaryColor}30` : 'rgba(255,255,255,0.05)'}`,
+                    }}
+                  >
+                    <p className="text-white/85 text-[11px] font-medium leading-snug line-clamp-2">{item.title}</p>
+                    <p className="text-white/30 text-[10px]">{item.source}</p>
+                  </motion.div>
+                ))}
               </div>
             </div>
           )}
+          {/* Source badge */}
+          <div className="px-4 pb-4 flex-shrink-0">
+            <div
+              className="w-full py-1.5 rounded-xl text-center text-[10px] font-bold uppercase tracking-widest"
+              style={{ background: `${primaryColor}15`, color: primaryColor, border: `1px solid ${primaryColor}25` }}
+            >
+              {effectiveSource === 'youtube' && '▶ YouTube'}
+              {effectiveSource === 'instagram' && '◈ Instagram'}
+              {effectiveSource === 'news' && '📰 Haber'}
+              {effectiveSource === 'social' && '◉ Sosyal'}
+            </div>
+          </div>
         </div>
-        {/* Main content */}
-        <div className="flex-1 min-w-0 min-h-0 flex flex-col gap-3 p-4 overflow-hidden">
-          {/* Featured news card (when available and in news_focus mode) */}
-          {currentNews && !highlight && (
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={currentNews.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                transition={{ duration: 0.5 }}
-                className="flex-1 min-h-0 relative overflow-hidden rounded-2xl"
-              >
-                {currentNews.imageUrl ? (
-                  <img src={currentNews.imageUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
-                ) : (
-                  <div className="absolute inset-0" style={{ background: `linear-gradient(135deg, ${primaryColor}15, rgba(2,8,23,0.95))` }} />
-                )}
-                <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(2,8,23,0.95) 0%, rgba(2,8,23,0.5) 50%, rgba(2,8,23,0.1) 100%)' }} />
-                <div className="absolute bottom-0 left-0 right-0 p-8">
-                  <div className="flex items-center gap-2 mb-3">
-                    <span
-                      className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest"
-                      style={{ background: `${primaryColor}25`, color: primaryColor, border: `1px solid ${primaryColor}35` }}
-                    >
-                      📰 {currentNews.source}
-                    </span>
-                  </div>
-                  <p
-                    className="text-white font-bold leading-tight"
-                    style={{ fontSize: 'clamp(1.2rem, 2.8vw, 2.5rem)', letterSpacing: '-0.015em' }}
-                  >
-                    {currentNews.title}
-                  </p>
-                  {currentNews.description && (
-                    <p className="text-white/55 mt-3" style={{ fontSize: 'clamp(0.75rem, 1.5vw, 1rem)' }}>
-                      {currentNews.description}
-                    </p>
+
+        {/* Main content area */}
+        <div className="flex-1 min-w-0 min-h-0 relative overflow-hidden">
+
+          {/* YOUTUBE */}
+          {effectiveSource === 'youtube' && youtubeVideo && (
+            <YouTubePlayer
+              videoId={youtubeVideo.videoId}
+              title={youtubeVideo.title}
+              muted autoplay loop
+              onEnded={onYouTubeEnded}
+              className="absolute inset-0 w-full h-full"
+            />
+          )}
+          {effectiveSource === 'youtube' && !youtubeVideo && (
+            <div className="absolute inset-0 flex items-center justify-center flex-col gap-3">
+              <span className="text-6xl opacity-20">▶</span>
+              <p className="text-white/20 text-sm uppercase tracking-widest">YouTube kuyruğu boş</p>
+            </div>
+          )}
+
+          {/* INSTAGRAM */}
+          {effectiveSource === 'instagram' && instagramPosts && instagramPosts.length > 0 && (
+            <InstagramCarousel posts={instagramPosts} slideDuration={igSlideDuration} />
+          )}
+          {effectiveSource === 'instagram' && (!instagramPosts || instagramPosts.length === 0) && (
+            <div className="absolute inset-0 flex items-center justify-center flex-col gap-3">
+              <span className="text-6xl opacity-20">◈</span>
+              <p className="text-white/20 text-sm uppercase tracking-widest">Instagram içeriği yok</p>
+            </div>
+          )}
+
+          {/* NEWS */}
+          {effectiveSource === 'news' && (
+            currentNews ? (
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={currentNews.id}
+                  initial={{ opacity: 0, scale: 1.03 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.98 }}
+                  transition={{ duration: 0.6 }}
+                  className="absolute inset-0"
+                >
+                  {currentNews.imageUrl ? (
+                    <>
+                      <img src={currentNews.imageUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                      <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(2,8,23,0.97) 0%, rgba(2,8,23,0.55) 50%, rgba(2,8,23,0.15) 100%)' }} />
+                    </>
+                  ) : (
+                    <div className="absolute inset-0" style={{ background: `linear-gradient(135deg, ${primaryColor}12 0%, rgba(2,8,23,0.97) 100%)` }} />
                   )}
-                </div>
-                {/* Slide dots */}
-                {liveNews && liveNews.length > 1 && (
-                  <div className="absolute bottom-3 right-5 flex gap-1">
-                    {liveNews.slice(0, 8).map((_, i) => (
-                      <div
-                        key={i}
-                        className="rounded-full transition-all duration-300"
-                        style={{
-                          width: i === newsIdx % 8 ? 20 : 6,
-                          height: 4,
-                          background: i === newsIdx % 8 ? primaryColor : 'rgba(255,255,255,0.2)',
-                        }}
-                      />
-                    ))}
+                  <div className="absolute bottom-0 left-0 right-0 p-8">
+                    <div className="flex items-center gap-2 mb-4">
+                      <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest"
+                        style={{ background: `${primaryColor}25`, color: primaryColor, border: `1px solid ${primaryColor}35` }}>
+                        📰 {currentNews.source}
+                      </span>
+                    </div>
+                    <p className="text-white font-bold leading-tight"
+                      style={{ fontSize: 'clamp(1.4rem, 3vw, 2.8rem)', letterSpacing: '-0.02em' }}>
+                      {currentNews.title}
+                    </p>
+                    {currentNews.description && (
+                      <p className="text-white/55 mt-3 leading-relaxed" style={{ fontSize: 'clamp(0.8rem, 1.6vw, 1.1rem)' }}>
+                        {currentNews.description}
+                      </p>
+                    )}
+                    {liveNews && liveNews.length > 1 && (
+                      <div className="flex gap-1 mt-4">
+                        {liveNews.slice(0, 8).map((_, i) => (
+                          <div key={i} className="rounded-full transition-all duration-300"
+                            style={{ width: i === newsIdx % 8 ? 20 : 6, height: 4,
+                              background: i === newsIdx % 8 ? primaryColor : 'rgba(255,255,255,0.2)' }} />
+                        ))}
+                      </div>
+                    )}
                   </div>
-                )}
-              </motion.div>
-            </AnimatePresence>
+                </motion.div>
+              </AnimatePresence>
+            ) : <EmptyState label="Haber bekleniyor…" />
           )}
-          {/* Social content highlight (when news absent) */}
-          {highlight && (
-            <div className="flex-1 min-h-0 overflow-hidden">
-              <AIHighlight content={highlight} primaryColor={primaryColor} secondaryColor={secondaryColor} />
-            </div>
-          )}
-          {!currentNews && !highlight && (
-            <div className="flex-1 min-h-0 glass rounded-2xl flex items-center justify-center">
-              <EmptyState />
-            </div>
-          )}
-          {feedContent.length > 0 && (
-            <div className="h-28 overflow-hidden flex-shrink-0">
-              <SocialFeed content={feedContent.slice(0, 3)} compact />
-            </div>
+
+          {/* SOCIAL */}
+          {effectiveSource === 'social' && (
+            highlight
+              ? <AIHighlight content={highlight} primaryColor={primaryColor} secondaryColor={secondaryColor} />
+              : <EmptyState label="Sosyal içerik bekleniyor…" />
           )}
         </div>
       </div>
-      <TickerFooter tickers={tickers} primaryColor={primaryColor} />
     </div>
   );
 }

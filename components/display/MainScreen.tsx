@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { DisplayData, LivePlaybackSource } from '@/types';
-import LayoutManager, { LayoutType } from './LayoutManager';
+import LayoutManager, { LayoutType, MainContentSource } from './LayoutManager';
 import type { InstagramPostData } from './InstagramCarousel';
 import { db } from '@/lib/firebase';
 import { doc, onSnapshot, Timestamp } from 'firebase/firestore';
@@ -34,6 +34,7 @@ export default function MainScreen({ screenId: urlScreenId }: MainScreenProps) {
   const [showAd, setShowAd] = useState(false);
   const [adIndex, setAdIndex] = useState(0);
   const [layout, setLayout] = useState<LayoutType>('default');
+  const [mainContentSource, setMainContentSource] = useState<MainContentSource>('auto');
   const [youtubeQueue, setYoutubeQueue] = useState<Array<{ videoId: string; title?: string }>>([]);
   const [instagramPosts, setInstagramPosts] = useState<InstagramPostData[]>([]);
   const [liveStream, setLiveStream] = useState<LivePlaybackSource | null>(null);
@@ -86,6 +87,8 @@ export default function MainScreen({ screenId: urlScreenId }: MainScreenProps) {
           layoutInitializedRef.current = true;
           const settingsLayout = json.settings?.layout as LayoutType | undefined;
           if (settingsLayout) setLayout(settingsLayout);
+          const settingsSource = json.settings?.main_content_source as MainContentSource | undefined;
+          if (settingsSource) setMainContentSource(settingsSource);
         }
       }
     } catch { /* keep showing current */ }
@@ -270,6 +273,7 @@ export default function MainScreen({ screenId: urlScreenId }: MainScreenProps) {
         case 'change_layout':
           setLiveStream(null);
           if (cmd.data?.layoutType) setLayout(cmd.data.layoutType as LayoutType);
+          if (cmd.data?.mainContentSource) setMainContentSource(cmd.data.mainContentSource as MainContentSource);
           break;
         case 'fullscreen_video': {
           const d = cmd.data ?? {};
@@ -586,6 +590,7 @@ export default function MainScreen({ screenId: urlScreenId }: MainScreenProps) {
           onYouTubeEnded={handleYouTubeEnded}
           primaryColor={primaryColor}
           secondaryColor={secondaryColor}
+          mainContentSource={mainContentSource}
         />
       </div>
 
