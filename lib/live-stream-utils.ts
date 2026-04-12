@@ -28,6 +28,9 @@ export function sanitizeLiveChannelInput(input: Record<string, unknown>) {
   const description = String(input.description ?? '').trim() || undefined;
   const rightsNote = String(input.rightsNote ?? '').trim() || undefined;
   const videoId = String(input.videoId ?? '').trim() || undefined;
+  const backupChannelId = typeof input.backupChannelId === 'string' && input.backupChannelId.trim()
+    ? input.backupChannelId.trim()
+    : undefined;
 
   return {
     title,
@@ -44,6 +47,8 @@ export function sanitizeLiveChannelInput(input: Record<string, unknown>) {
     tags: normalizeTags(input.tags),
     requiresAuth: Boolean(input.requiresAuth),
     isActive: input.isActive !== false,
+    backupChannelId,
+    autoFailover: Boolean(input.autoFailover),
   };
 }
 

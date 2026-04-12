@@ -37,6 +37,8 @@ type FormState = {
   tags: string;
   requiresAuth: boolean;
   isActive: boolean;
+  backupChannelId: string;
+  autoFailover: boolean;
 };
 
 const INITIAL_FORM: FormState = {
@@ -54,6 +56,8 @@ const INITIAL_FORM: FormState = {
   tags: '',
   requiresAuth: true,
   isActive: true,
+  backupChannelId: '',
+  autoFailover: false,
 };
 
 function providerTone(provider: LiveProvider): string {
@@ -112,6 +116,8 @@ export default function TvPage() {
       tags: Array.isArray(channel.tags) ? channel.tags.join(', ') : channel.tags ?? '',
       requiresAuth: Boolean(channel.requiresAuth),
       isActive: channel.isActive,
+      backupChannelId: channel.backupChannelId ?? '',
+      autoFailover: Boolean(channel.autoFailover),
     });
   };
 
@@ -347,6 +353,25 @@ export default function TvPage() {
                 Aktif kaynak
               </label>
             </div>
+
+            {/* Auto Failover */}
+            <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3 space-y-2 text-sm">
+              <label className="flex items-center gap-2 text-white/70 cursor-pointer">
+                <input type="checkbox" checked={form.autoFailover} onChange={(e) => set('autoFailover', e.target.checked)} />
+                <span>⚡ Otomatik Failover — 3 başarısız kontrolde yedek kanala geç</span>
+              </label>
+              {form.autoFailover && (
+                <div>
+                  <label className="label">Yedek Kanal</label>
+                  <select value={form.backupChannelId} onChange={(e) => set('backupChannelId', e.target.value)} className="input w-full">
+                    <option value="">— Seçin —</option>
+                    {channels.filter(c => c.id !== form.id).map(c => (
+                      <option key={c.id} value={c.id}>{c.title}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="flex gap-3 pt-2">
@@ -379,6 +404,12 @@ export default function TvPage() {
                       <span className={cn('badge text-[10px] border', providerTone(channel.provider))}>{channel.provider}</span>
                       <span className="badge badge-muted text-[10px]">{channel.playbackMode}</span>
                       {!channel.isActive && <span className="badge badge-danger text-[10px]">Pasif</span>}
+                      {(channel.consecutiveFails ?? 0) > 0 && (
+                        <span className="badge text-[10px] border border-amber-400/30 text-amber-300 bg-amber-400/10">⚠️ {channel.consecutiveFails} hata</span>
+                      )}
+                      {channel.autoFailover && channel.backupChannelId && (
+                        <span className="badge badge-muted text-[10px]">⚡ Failover</span>
+                      )}
                     </div>
                   </div>
                   {channel.logoUrl && <img src={channel.logoUrl} alt="" className="w-10 h-10 rounded-lg object-cover bg-white/5" />}

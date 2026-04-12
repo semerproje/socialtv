@@ -834,6 +834,57 @@ function CommandPanel({ screens, channels, playlists, activeSchedule, history, o
 
   useEffect(() => { fetchScenes(); fetchGroups(); }, [fetchScenes, fetchGroups]);
 
+  // Breaking News state
+  const [bn, setBn] = useState({ headline: '', summary: '', source: '' });
+  const [bnSending, setBnSending] = useState(false);
+  const publishBreakingNews = async () => {
+    if (!bn.headline.trim()) { toast.error('Başlık giriniz'); return; }
+    setBnSending(true);
+    try {
+      await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ breaking_headline: bn.headline.trim(), breaking_summary: bn.summary.trim(), breaking_source: bn.source.trim() }),
+      });
+      await fetch('/api/sync/broadcast', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event: 'change_layout', data: { layoutType: 'breaking_news' } }),
+      });
+      toast.success('🔴 Son dakika yayına alındı');
+    } catch { toast.error('Yayınlanamadı'); } finally { setBnSending(false); }
+  };
+  const clearBreakingNews = async () => {
+    setBn({ headline: '', summary: '', source: '' });
+    await fetch('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ breaking_headline: '', breaking_summary: '', breaking_source: '' }),
+    }).catch(() => {});
+    toast.success('Son dakika temizlendi');
+  };
+
+  // Countdown quick-set state
+  const [cd, setCd] = useState({ title: '', target: '', bgUrl: '' });
+  const [cdSending, setCdSending] = useState(false);
+  const publishCountdown = async () => {
+    if (!cd.title.trim() || !cd.target) { toast.error('Başlık ve hedef tarih giriniz'); return; }
+    setCdSending(true);
+    try {
+      await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ countdown_title: cd.title.trim(), countdown_target: cd.target, countdown_bg_url: cd.bgUrl.trim() }),
+      });
+      await fetch('/api/sync/broadcast', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event: 'change_layout', data: { layoutType: 'event_countdown' } }),
+      });
+      toast.success('⏳ Geri sayım başlatıldı');
+    } catch { toast.error('Başlatılamadı'); } finally { setCdSending(false); }
+  };
+
   const activateScene = async (scene: Scene) => {
     setActiveScene(scene.id);
     try {
@@ -926,6 +977,69 @@ function CommandPanel({ screens, channels, playlists, activeSchedule, history, o
             <CreateSceneModal groups={groups} onClose={() => setShowCreateScene(false)} onCreated={fetchScenes} />
           </AnimatePresence>
         )}
+      </div>
+
+      {/* Son Dakika */}
+      <div className="p-3 border-b" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+        <p className="text-[10px] font-bold tracking-[0.16em] uppercase mb-2" style={{ color: 'rgba(248,113,113,0.7)' }}>🔴 Son Dakika</p>
+        <div className="space-y-1.5">
+          <input
+            value={bn.headline}
+            onChange={e => setBn(p => ({ ...p, headline: e.target.value }))}
+            placeholder="Başlık *"
+            className="input w-full text-xs"
+          />
+          <input
+            value={bn.summary}
+            onChange={e => setBn(p => ({ ...p, summary: e.target.value }))}
+            placeholder="Özet (isteğe bağlı)"
+            className="input w-full text-xs"
+          />
+          <input
+            value={bn.source}
+            onChange={e => setBn(p => ({ ...p, source: e.target.value }))}
+            placeholder="Kaynak (isteğe bağlı)"
+            className="input w-full text-xs"
+          />
+          <div className="flex gap-1.5">
+            <button
+              onClick={publishBreakingNews}
+              disabled={bnSending || !bn.headline.trim()}
+              className="flex-1 py-1.5 rounded-lg text-xs font-semibold bg-red-600/70 hover:bg-red-600 text-white border border-red-500/40 disabled:opacity-40 transition-all"
+            >Yayınla</button>
+            <button onClick={clearBreakingNews} className="px-3 py-1.5 rounded-lg text-xs border border-white/10 text-white/40 hover:text-white/70 transition-all" title="Temizle">✕</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Geri Sayım Hızlı Başlat */}
+      <div className="p-3 border-b" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+        <p className="text-[10px] font-bold tracking-[0.16em] uppercase mb-2" style={{ color: 'rgba(167,139,250,0.7)' }}>⏳ Geri Sayım</p>
+        <div className="space-y-1.5">
+          <input
+            value={cd.title}
+            onChange={e => setCd(p => ({ ...p, title: e.target.value }))}
+            placeholder="Etkinlik başlığı *"
+            className="input w-full text-xs"
+          />
+          <input
+            type="datetime-local"
+            value={cd.target}
+            onChange={e => setCd(p => ({ ...p, target: e.target.value }))}
+            className="input w-full text-xs"
+          />
+          <input
+            value={cd.bgUrl}
+            onChange={e => setCd(p => ({ ...p, bgUrl: e.target.value }))}
+            placeholder="Arka plan görseli URL (isteğe bağlı)"
+            className="input w-full text-xs"
+          />
+          <button
+            onClick={publishCountdown}
+            disabled={cdSending || !cd.title.trim() || !cd.target}
+            className="w-full py-1.5 rounded-lg text-xs font-semibold bg-violet-600/70 hover:bg-violet-600 text-white border border-violet-500/40 disabled:opacity-40 transition-all"
+          >Başlat</button>
+        </div>
       </div>
 
       {/* Quick Actions */}

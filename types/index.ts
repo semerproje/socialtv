@@ -186,6 +186,12 @@ export interface LiveChannel {
   tags?: string[] | string;
   isActive: boolean;
   requiresAuth?: boolean;
+  /** ID of the backup channel to switch to when this channel is unreachable */
+  backupChannelId?: string;
+  /** When true, automatically broadcast the backup channel after 3 consecutive health failures */
+  autoFailover?: boolean;
+  /** Counter reset to 0 on each successful health check */
+  consecutiveFails?: number;
   createdAt: string;
   updatedAt: string;
 }
