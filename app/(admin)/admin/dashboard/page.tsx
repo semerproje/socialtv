@@ -39,11 +39,13 @@ type Period = '7' | '30';
 export default function DashboardPage() {
   const [stats, setStats] = useState<StatsData | null>(null);
   const [screens, setScreens] = useState<ScreenInfo[]>([]);
+  const [playlists, setPlaylists] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [statsError, setStatsError] = useState<string | null>(null);
   const [period, setPeriod] = useState<Period>('7');
   const [broadcasting, setBroadcasting] = useState(false);
   const [broadcastResult, setBroadcastResult] = useState<string | null>(null);
+  const [selectedPlaylistId, setSelectedPlaylistId] = useState<string>('');
 
   const fetchStats = useCallback(async () => {
     setStatsError(null);
@@ -79,13 +81,30 @@ export default function DashboardPage() {
     }
   }, []);
 
+  const fetchPlaylists = useCallback(async () => {
+    try {
+      const res = await fetch('/api/playlists');
+      if (!res.ok) return;
+      const d = await res.json();
+      if (d.data) {
+        const active = (d.data as { id: string; name: string; isActive: boolean }[])
+          .filter((p) => p.isActive)
+          .map((p) => ({ id: p.id, name: p.name }));
+        setPlaylists(active);
+        if (active.length > 0 && !selectedPlaylistId) setSelectedPlaylistId(active[0].id);
+      }
+    } catch {}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => { fetchStats(); }, [fetchStats]);
 
   useEffect(() => {
     fetchScreens();
+    fetchPlaylists();
     const t = setInterval(fetchScreens, 30_000);
     return () => clearInterval(t);
-  }, [fetchScreens]);
+  }, [fetchScreens, fetchPlaylists]);
 
   const quickBroadcast = async (layoutType: string, label: string) => {
     setBroadcasting(true);
@@ -97,6 +116,47 @@ export default function DashboardPage() {
         body: JSON.stringify({ event: 'change_layout', data: { layoutType } }),
       });
       if (res.ok) setBroadcastResult(`✓ ${label} tüm ekranlara gönderildi`);
+      else setBroadcastResult('✗ Gönderim başarısız');
+    } catch {
+      setBroadcastResult('✗ Bağlantı hatası');
+    } finally {
+      setBroadcasting(false);
+      setTimeout(() => setBroadcastResult(null), 4000);
+    }
+  };
+
+  const sendPlaylist = async () => {
+    if (!selectedPlaylistId) return;
+    const pl = playlists.find((p) => p.id === selectedPlaylistId);
+    if (!pl) return;
+    setBroadcasting(true);
+    setBroadcastResult(null);
+    try {
+      const res = await fetch('/api/sync/broadcast', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event: 'start_playlist', data: { playlistId: pl.id, playlistName: pl.name } }),
+      });
+      if (res.ok) setBroadcastResult(`✓ "${pl.name}" tüm ekranlara gönderildi`);
+      else setBroadcastResult('✗ Gönderim başarısız');
+    } catch {
+      setBroadcastResult('✗ Bağlantı hatası');
+    } finally {
+      setBroadcasting(false);
+      setTimeout(() => setBroadcastResult(null), 4000);
+    }
+  };
+
+  const stopPlaylist = async () => {
+    setBroadcasting(true);
+    setBroadcastResult(null);
+    try {
+      const res = await fetch('/api/sync/broadcast', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event: 'stop_playlist', data: {} }),
+      });
+      if (res.ok) setBroadcastResult('✓ Playlist durduruldu');
       else setBroadcastResult('✗ Gönderim başarısız');
     } catch {
       setBroadcastResult('✗ Bağlantı hatası');
@@ -439,6 +499,38 @@ export default function DashboardPage() {
               {broadcastResult}
             </div>
           )}
+          {/* Playlist send */}
+          {playlists.length > 0 && (
+            <div className="mb-3 pt-3 border-t border-white/[0.06]">
+              <p className="text-xs text-tv-muted mb-2">Playlist gönder</p>
+              <div className="flex gap-2">
+                <select
+                  value={selectedPlaylistId}
+                  onChange={(e) => setSelectedPlaylistId(e.target.value)}
+                  className="flex-1 text-xs bg-white/[0.05] border border-white/[0.08] rounded-lg px-2 py-1.5 text-tv-text focus:outline-none focus:border-indigo-500/50"
+                >
+                  {playlists.map((p) => (
+                    <option key={p.id} value={p.id} className="bg-[#1e293b]">{p.name}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={sendPlaylist}
+                  disabled={broadcasting || !selectedPlaylistId}
+                  className="px-3 py-1.5 rounded-lg bg-indigo-600/80 hover:bg-indigo-600 text-white text-xs font-medium disabled:opacity-50 transition-colors"
+                >
+                  ▶
+                </button>
+                <button
+                  onClick={stopPlaylist}
+                  disabled={broadcasting}
+                  title="Playlist durdur"
+                  className="px-3 py-1.5 rounded-lg border border-white/[0.08] hover:bg-white/5 text-tv-muted text-xs disabled:opacity-50 transition-colors"
+                >
+                  ■
+                </button>
+              </div>
+            </div>
+          )}
           <Link
             href="/admin/publish"
             className="flex items-center justify-center gap-2 w-full py-2 rounded-lg border border-indigo-500/30 text-xs text-indigo-400 hover:bg-indigo-500/10 transition-colors font-medium"
@@ -457,6 +549,7 @@ export default function DashboardPage() {
             { href: '/admin/content?new=1', icon: '🖼️', label: 'İçerik Ekle', color: '#22d3ee' },
             { href: '/admin/ai-studio', icon: '🤖', label: 'AI Studio', color: '#8b5cf6' },
             { href: '/admin/ticker?new=1', icon: '📢', label: 'Ticker Ekle', color: '#f59e0b' },
+            { href: '/admin/playlist', icon: '▶', label: 'Playlist', color: '#6366f1' },
             { href: '/admin/schedule', icon: '📅', label: 'Takvim', color: '#ec4899' },
             { href: '/admin/monitoring', icon: '🩺', label: 'Monitoring', color: '#10b981' },
           ].map((action) => (
