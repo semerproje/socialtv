@@ -32,6 +32,7 @@ export async function GET(req: NextRequest) {
         .map(async (f) => {
           const [metadata] = await f.getMetadata();
           const url = `https://firebasestorage.googleapis.com/v0/b/${BUCKET}/o/${encodeURIComponent(f.name)}?alt=media`;
+          const customMeta = (metadata.metadata as Record<string, string> | undefined) ?? {};
           return {
             name: f.name,
             fileName: f.name.split('/').pop(),
@@ -39,6 +40,9 @@ export async function GET(req: NextRequest) {
             contentType: metadata.contentType ?? 'application/octet-stream',
             size: metadata.size ? Number(metadata.size) : 0,
             updatedAt: metadata.updated ?? null,
+            title: customMeta.title ?? null,
+            tags: customMeta.tags ? customMeta.tags.split(',').filter(Boolean) : [],
+            notes: customMeta.notes ?? null,
           };
         })
     );
@@ -80,5 +84,41 @@ export async function DELETE(req: NextRequest) {
   } catch (err) {
     console.error('[DELETE /api/media]', err);
     return NextResponse.json({ success: false, error: 'Failed to delete file' }, { status: 500 });
+  }
+}
+
+// PATCH /api/media — update custom metadata on a file
+export async function PATCH(req: NextRequest) {
+  const auth = await requireAdmin(req, 'editor');
+  if (!auth.ok) return auth.response;
+
+  const limited = enforceRateLimit(req, 'media-patch', 30, 60_000);
+  if (limited) return limited;
+
+  try {
+    const body = await req.json();
+    const { path, title, tags, notes } = body;
+
+    if (!path || typeof path !== 'string') {
+      return NextResponse.json({ error: 'path required' }, { status: 400 });
+    }
+    if (!path.startsWith(MEDIA_PREFIX)) {
+      return NextResponse.json({ error: 'Forbidden path' }, { status: 403 });
+    }
+
+    const bucket = getAdminStorage();
+    const file = bucket.file(path);
+    await file.setMetadata({
+      metadata: {
+        ...(title !== undefined ? { title: String(title) } : {}),
+        ...(tags !== undefined ? { tags: Array.isArray(tags) ? tags.join(',') : String(tags) } : {}),
+        ...(notes !== undefined ? { notes: String(notes) } : {}),
+      },
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    console.error('[PATCH /api/media]', err);
+    return NextResponse.json({ success: false, error: 'Failed to update metadata' }, { status: 500 });
   }
 }

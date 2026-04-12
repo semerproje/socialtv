@@ -153,6 +153,10 @@ export const setting = {
   async upsert(key: string, value: string) {
     await col('settings').doc(key).set({ value, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
   },
+
+  async delete(key: string) {
+    await col('settings').doc(key).delete();
+  },
 };
 
 // ─── TickerMessage ────────────────────────────────────────────────────────────

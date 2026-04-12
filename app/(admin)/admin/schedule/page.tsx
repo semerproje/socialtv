@@ -533,6 +533,29 @@ function EventFormModal({ initial, screens, channels, onSave, onClose, onDelete,
   );
 }
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface TemplateSlot {
+  title: string;
+  type: string;
+  description?: string;
+  color?: string;
+  layoutType?: string;
+  recurrence?: string;
+  priority?: string;
+  dayOffset: number;     // 0=Mon...6=Sun relative to week start
+  startHour: number;
+  startMinute: number;
+  durationMinutes?: number;
+}
+
+interface WeeklyTemplate {
+  id: string;
+  name: string;
+  createdAt: string;
+  slots: TemplateSlot[];
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function SchedulePage() {
@@ -543,6 +566,11 @@ export default function SchedulePage() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [showAIWeekly, setShowAIWeekly] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [templates, setTemplates] = useState<WeeklyTemplate[]>([]);
+  const [templateName, setTemplateName] = useState('');
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [applyingTemplate, setApplyingTemplate] = useState<string | null>(null);
   const [editingEvent, setEditingEvent] = useState<ScheduleEvent | null>(null);
   const [newEventDefaults, setNewEventDefaults] = useState<Partial<ScheduleEvent>>({});
 
@@ -625,6 +653,110 @@ export default function SchedulePage() {
     setShowForm(false);
     setEditingEvent(null);
   };
+
+  // ── Template handlers ──────────────────────────────────────────────────────
+  const fetchTemplates = useCallback(async () => {
+    try {
+      const res = await fetch('/api/schedule/templates');
+      if (res.ok) {
+        const d = await res.json();
+        setTemplates(d.data ?? []);
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => { fetchTemplates(); }, [fetchTemplates]);
+
+  const handleSaveTemplate = useCallback(async () => {
+    const name = templateName.trim();
+    if (!name) { toast.error('Şablon adı girin'); return; }
+    setSavingTemplate(true);
+    try {
+      // collect events for the current week
+      const weekEnd = addDays(weekStart, 7);
+      const weekEvents = events.filter((e) => {
+        const d = new Date(e.startAt);
+        return d >= weekStart && d < weekEnd;
+      });
+      const slots: TemplateSlot[] = weekEvents.map((e) => {
+        const start = new Date(e.startAt);
+        const dayOffset = Math.floor((start.getTime() - weekStart.getTime()) / (24 * 60 * 60 * 1000));
+        const durationMs = e.endAt ? new Date(e.endAt).getTime() - start.getTime() : undefined;
+        return {
+          title: e.title,
+          type: e.type,
+          description: e.description ?? undefined,
+          color: e.color ?? undefined,
+          layoutType: e.layoutType ?? undefined,
+          recurrence: e.recurrence ?? 'once',
+          priority: e.priority ?? 'normal',
+          dayOffset,
+          startHour: start.getHours(),
+          startMinute: start.getMinutes(),
+          durationMinutes: durationMs ? Math.round(durationMs / 60_000) : undefined,
+        };
+      });
+      const res = await fetch('/api/schedule/templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, slots }),
+      });
+      if (res.ok) {
+        toast.success(`"${name}" şablonu kaydedildi`);
+        setTemplateName('');
+        fetchTemplates();
+      } else {
+        toast.error('Kaydedilemedi');
+      }
+    } finally {
+      setSavingTemplate(false);
+    }
+  }, [templateName, weekStart, events, fetchTemplates]);
+
+  const handleApplyTemplate = useCallback(async (tpl: WeeklyTemplate) => {
+    if (!confirm(`"${tpl.name}" şablonunu bu haftaya uygulamak istiyor musunuz? ${tpl.slots.length} etkinlik oluşturulacak.`)) return;
+    setApplyingTemplate(tpl.id);
+    try {
+      await Promise.all(tpl.slots.map((slot) => {
+        const startAt = new Date(weekStart);
+        startAt.setDate(startAt.getDate() + slot.dayOffset);
+        startAt.setHours(slot.startHour, slot.startMinute, 0, 0);
+        const endAt = slot.durationMinutes
+          ? new Date(startAt.getTime() + slot.durationMinutes * 60_000)
+          : undefined;
+        return fetch('/api/schedule', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: slot.title,
+            type: slot.type,
+            description: slot.description,
+            color: slot.color,
+            layoutType: slot.layoutType,
+            recurrence: slot.recurrence ?? 'once',
+            priority: slot.priority ?? 'normal',
+            startAt: startAt.toISOString(),
+            endAt: endAt?.toISOString(),
+            isActive: true,
+          }),
+        });
+      }));
+      toast.success(`"${tpl.name}" uygulandı — ${tpl.slots.length} etkinlik oluşturuldu`);
+      fetchAll();
+      setShowTemplates(false);
+    } catch {
+      toast.error('Şablon uygulanamadı');
+    } finally {
+      setApplyingTemplate(null);
+    }
+  }, [weekStart, fetchAll]);
+
+  const handleDeleteTemplate = useCallback(async (id: string, name: string) => {
+    if (!confirm(`"${name}" şablonunu silmek istiyor musunuz?`)) return;
+    const res = await fetch(`/api/schedule/templates?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+    if (res.ok) { toast.success('Şablon silindi'); fetchTemplates(); }
+    else toast.error('Silinemedi');
+  }, [fetchTemplates]);
 
   const handleCopyToNextWeek = useCallback(async () => {
     if (!editingEvent) return;
@@ -766,6 +898,17 @@ export default function SchedulePage() {
             🤖 AI Program
           </button>
           <button
+            onClick={() => setShowTemplates((v) => !v)}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-2 rounded-xl border transition-all text-sm font-medium',
+              showTemplates
+                ? 'border-amber-500/40 bg-amber-500/15 text-amber-300'
+                : 'border-white/10 bg-white/[0.03] text-white/60 hover:text-white hover:bg-white/[0.06]'
+            )}
+          >
+            📋 Şablonlar {templates.length > 0 && <span className="text-[10px] opacity-60">({templates.length})</span>}
+          </button>
+          <button
             onClick={() => { setEditingEvent(null); setNewEventDefaults({}); setShowForm(true); }}
             className="btn-primary text-sm"
           >
@@ -773,6 +916,89 @@ export default function SchedulePage() {
           </button>
         </div>
       </header>
+
+      {/* Templates Panel */}
+      <AnimatePresence>
+        {showTemplates && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="flex-shrink-0 overflow-hidden border-b"
+            style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(245,158,11,0.03)' }}
+          >
+            <div className="px-6 py-4 flex flex-wrap gap-5 items-start">
+              {/* Save current week as template */}
+              <div className="flex-shrink-0">
+                <p className="text-[11px] uppercase tracking-[0.12em] text-amber-400/60 font-semibold mb-2">Bu Haftayı Kaydet</p>
+                <div className="flex items-center gap-2">
+                  <input
+                    value={templateName}
+                    onChange={(e) => setTemplateName(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSaveTemplate()}
+                    placeholder="Şablon adı (ör: Standart Hafta)"
+                    className="input text-sm w-52"
+                  />
+                  <button
+                    onClick={handleSaveTemplate}
+                    disabled={savingTemplate || !templateName.trim()}
+                    className="btn-primary text-sm disabled:opacity-40"
+                  >
+                    {savingTemplate ? '…' : 'Kaydet'}
+                  </button>
+                </div>
+                <p className="text-[10px] text-white/25 mt-1">
+                  Bu haftadaki {events.filter(e => { const d = new Date(e.startAt); return d >= weekStart && d < addDays(weekStart, 7); }).length} etkinlik şablon olarak kaydedilir
+                </p>
+              </div>
+
+              {/* Separator */}
+              {templates.length > 0 && <div className="w-px self-stretch bg-white/[0.06] flex-shrink-0 mx-1" />}
+
+              {/* Template list */}
+              {templates.length > 0 && (
+                <div className="flex-1 min-w-0">
+                  <p className="text-[11px] uppercase tracking-[0.12em] text-amber-400/60 font-semibold mb-2">Kayıtlı Şablonlar</p>
+                  <div className="flex flex-wrap gap-2">
+                    {templates.map((tpl) => (
+                      <div
+                        key={tpl.id}
+                        className="flex items-center gap-2 rounded-xl border border-amber-500/15 bg-amber-500/[0.07] px-3 py-2"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-white/80 text-xs font-medium truncate max-w-[140px]">{tpl.name}</p>
+                          <p className="text-white/30 text-[10px]">{tpl.slots.length} etkinlik</p>
+                        </div>
+                        <button
+                          onClick={() => handleApplyTemplate(tpl)}
+                          disabled={applyingTemplate === tpl.id}
+                          className="text-[11px] px-2 py-0.5 rounded-lg bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-all disabled:opacity-40 flex-shrink-0"
+                        >
+                          {applyingTemplate === tpl.id ? '…' : 'Uygula'}
+                        </button>
+                        <button
+                          onClick={() => handleDeleteTemplate(tpl.id, tpl.name)}
+                          className="text-[11px] px-2 py-0.5 rounded-lg bg-red-500/10 text-red-400/60 hover:bg-red-500/20 hover:text-red-400 transition-all flex-shrink-0"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {templates.length === 0 && (
+                <div className="flex items-center gap-2 text-white/20 text-xs">
+                  <span>📋</span>
+                  <span>Henüz şablon kaydedilmemiş. Haftanızı düzenleyip kaydedin.</span>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Calendar */}
       <div className="flex-1 flex overflow-hidden">

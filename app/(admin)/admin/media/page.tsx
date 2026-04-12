@@ -13,6 +13,9 @@ interface MediaItem {
   contentType: string;
   size: number;
   updatedAt: string | null;
+  title: string | null;
+  tags: string[];
+  notes: string | null;
 }
 
 type Tab = 'library' | 'upload' | 'youtube' | 'instagram';
@@ -56,10 +59,116 @@ function ConfirmDelete({ fileName, onConfirm, onCancel }: {
   );
 }
 
-// ─── Media Card (grid) ────────────────────────────────────────────────────────
-function MediaCard({ item, onDelete, selected, onToggleSelect, bulkMode }: {
+// ─── Metadata Edit Modal ────────────────────────────────────────────────────────────────
+function MetadataModal({ item, onClose, onSaved }: {
+  item: MediaItem;
+  onClose: () => void;
+  onSaved: (updated: Partial<MediaItem>) => void;
+}) {
+  const [title, setTitle] = useState(item.title ?? '');
+  const [tagsRaw, setTagsRaw] = useState((item.tags ?? []).join(', '));
+  const [notes, setNotes] = useState(item.notes ?? '');
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const tags = tagsRaw.split(',').map(t => t.trim()).filter(Boolean);
+      const res = await fetch('/api/media', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: item.name, title: title.trim() || null, tags, notes: notes.trim() || null }),
+      });
+      if (res.ok) {
+        toast.success('Metadata güncellendi');
+        onSaved({ title: title.trim() || null, tags, notes: notes.trim() || null });
+        onClose();
+      } else {
+        toast.error('Güncellenemedi');
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className="w-full max-w-md rounded-2xl border border-white/10 shadow-2xl overflow-hidden"
+        style={{ background: '#0f1117' }}
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-5 border-b" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
+          <div>
+            <h3 className="text-white font-bold text-sm">Dosya Bilgileri</h3>
+            <p className="text-white/35 text-xs mt-0.5 truncate max-w-[280px]">{item.fileName}</p>
+          </div>
+          <button onClick={onClose} className="text-white/30 hover:text-white/60 text-xl">×</button>
+        </div>
+        <div className="p-5 space-y-4">
+          {/* Preview */}
+          {item.contentType.startsWith('image/') && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={item.url} alt={item.fileName} className="w-full h-32 object-cover rounded-xl" />
+          )}
+          <div>
+            <label className="label">Başlık</label>
+            <input
+              value={title}
+              onChange={e => setTitle(e.target.value)}
+              placeholder={item.fileName}
+              className="input w-full"
+            />
+          </div>
+          <div>
+            <label className="label">Etiketler <span className="text-white/25">(virgülle ayırın)</span></label>
+            <input
+              value={tagsRaw}
+              onChange={e => setTagsRaw(e.target.value)}
+              placeholder="reklam, logo, marka..."
+              className="input w-full"
+            />
+          </div>
+          <div>
+            <label className="label">Not</label>
+            <textarea
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              rows={2}
+              placeholder="Opsiyonel not..."
+              className="input w-full resize-none text-sm"
+            />
+          </div>
+          <div className="text-xs text-white/25 space-y-0.5">
+            <p>Tür: {item.contentType}</p>
+            <p>Boyut: {formatSize(item.size)} · Güncelleme: {formatDate(item.updatedAt)}</p>
+            <p className="text-[10px] truncate opacity-60">{item.name}</p>
+          </div>
+        </div>
+        <div className="flex items-center justify-between p-5 border-t" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
+          <button
+            onClick={() => { navigator.clipboard.writeText(item.url); toast.success('URL kopyalandı'); }}
+            className="btn-secondary text-xs"
+          >
+            📋 URL Kopyala
+          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={onClose} className="btn-secondary text-sm">İptal</button>
+            <button onClick={handleSave} disabled={saving} className="btn-primary text-sm disabled:opacity-40">
+              {saving ? '…' : 'Kaydet'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Media Card (grid) ────────────────────────────────────────────────────────────────
+function MediaCard({ item, onDelete, onInfo, selected, onToggleSelect, bulkMode }: {
   item: MediaItem;
   onDelete: (item: MediaItem) => void;
+  onInfo: (item: MediaItem) => void;
   selected?: boolean;
   onToggleSelect?: () => void;
   bulkMode?: boolean;
@@ -94,6 +203,12 @@ function MediaCard({ item, onDelete, selected, onToggleSelect, bulkMode }: {
         {!bulkMode && (
           <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
             <button
+              onClick={e => { e.stopPropagation(); onInfo(item); }}
+              className="px-3 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 text-white text-xs font-medium transition-all"
+            >
+              ℹ️ Info
+            </button>
+            <button
               onClick={e => { e.stopPropagation(); navigator.clipboard.writeText(item.url); toast.success('URL kopyalandı'); }}
               className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium transition-all"
             >
@@ -110,20 +225,28 @@ function MediaCard({ item, onDelete, selected, onToggleSelect, bulkMode }: {
       </div>
       {/* Info */}
       <div className="p-2.5 space-y-0.5">
-        <p className="text-tv-text text-xs font-medium truncate" title={item.fileName}>{item.fileName}</p>
+        <p className="text-tv-text text-xs font-medium truncate" title={item.title ?? item.fileName}>{item.title ?? item.fileName}</p>
         <div className="flex items-center justify-between">
           <span className="text-tv-muted text-[10px]">{formatSize(item.size)}</span>
           <span className="text-tv-muted text-[10px]">{formatDate(item.updatedAt)}</span>
         </div>
+        {item.tags && item.tags.length > 0 && (
+          <div className="flex flex-wrap gap-1 mt-1">
+            {item.tags.slice(0, 3).map(tag => (
+              <span key={tag} className="text-[9px] px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400/70 border border-indigo-500/15">{tag}</span>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
 // ─── Media Row (list) ─────────────────────────────────────────────────────────
-function MediaRow({ item, onDelete, selected, onToggleSelect, bulkMode }: {
+function MediaRow({ item, onDelete, onInfo, selected, onToggleSelect, bulkMode }: {
   item: MediaItem;
   onDelete: (item: MediaItem) => void;
+  onInfo: (item: MediaItem) => void;
   selected?: boolean;
   onToggleSelect?: () => void;
   bulkMode?: boolean;
@@ -145,6 +268,12 @@ function MediaRow({ item, onDelete, selected, onToggleSelect, bulkMode }: {
       </div>
       {!bulkMode && (
         <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button
+            onClick={e => { e.stopPropagation(); onInfo(item); }}
+            className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-tv-text text-xs transition-all"
+          >
+            ℹ️
+          </button>
           <button
             onClick={e => { e.stopPropagation(); navigator.clipboard.writeText(item.url); toast.success('URL kopyalandı'); }}
             className="px-2.5 py-1 rounded-lg bg-indigo-600/70 hover:bg-indigo-600 text-white text-xs transition-all"
@@ -174,6 +303,7 @@ function LibraryTab() {
   const [filterType, setFilterType] = useState<'all' | 'image' | 'video' | 'other'>('all');
   const [deleteTarget, setDeleteTarget] = useState<MediaItem | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [editingMeta, setEditingMeta] = useState<MediaItem | null>(null);
   // Bulk ops
   const [bulkMode, setBulkMode] = useState(false);
   const [selectedNames, setSelectedNames] = useState<Set<string>>(new Set());
@@ -435,6 +565,7 @@ function LibraryTab() {
               key={item.name}
               item={item}
               onDelete={setDeleteTarget}
+              onInfo={setEditingMeta}
               bulkMode={bulkMode}
               selected={selectedNames.has(item.name)}
               onToggleSelect={() => toggleSelect(item.name)}
@@ -451,6 +582,7 @@ function LibraryTab() {
               key={item.name}
               item={item}
               onDelete={setDeleteTarget}
+              onInfo={setEditingMeta}
               bulkMode={bulkMode}
               selected={selectedNames.has(item.name)}
               onToggleSelect={() => toggleSelect(item.name)}
@@ -474,6 +606,17 @@ function LibraryTab() {
             <p className="text-tv-muted text-sm">Siliniyor…</p>
           </div>
         </div>
+      )}
+      {editingMeta && (
+        <MetadataModal
+          item={editingMeta}
+          onClose={() => setEditingMeta(null)}
+          onSaved={(updated) => {
+            setItems(prev => prev.map(i =>
+              i.name === editingMeta.name ? { ...i, ...updated } : i
+            ));
+          }}
+        />
       )}
       </div>
     </div>
