@@ -311,9 +311,10 @@ interface EventFormProps {
   onSave: (data: Partial<ScheduleEvent>) => void;
   onClose: () => void;
   onDelete?: () => void;
+  onCopyToNextWeek?: () => void;
 }
 
-function EventFormModal({ initial, screens, channels, onSave, onClose, onDelete }: EventFormProps) {
+function EventFormModal({ initial, screens, channels, onSave, onClose, onDelete, onCopyToNextWeek }: EventFormProps) {
   const [form, setForm] = useState({
     title: initial?.title ?? '',
     description: initial?.description ?? '',
@@ -508,10 +509,20 @@ function EventFormModal({ initial, screens, channels, onSave, onClose, onDelete 
         {/* Footer */}
         <div className="flex items-center gap-3 p-5 border-t" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
           {onDelete && (
-            <button onClick={onDelete} className="btn-secondary text-red-400 hover:text-red-300 border-red-500/20 mr-auto">
+            <button onClick={onDelete} className="btn-secondary text-red-400 hover:text-red-300 border-red-500/20">
               Sil
             </button>
           )}
+          {onCopyToNextWeek && initial?.id && (
+            <button
+              onClick={onCopyToNextWeek}
+              className="btn-secondary text-indigo-300 border-indigo-500/25 hover:border-indigo-500/50"
+              title="Bu etkinliği 7 gün sonrasına kopyala"
+            >
+              📋 Haftaya Kopyala
+            </button>
+          )}
+          <div className="flex-1" />
           <button onClick={onClose} className="btn-secondary">İptal</button>
           <button onClick={handleSave} className="btn-primary">
             {initial?.id ? 'Güncelle' : 'Oluştur'}
@@ -614,6 +625,28 @@ export default function SchedulePage() {
     setShowForm(false);
     setEditingEvent(null);
   };
+
+  const handleCopyToNextWeek = useCallback(async () => {
+    if (!editingEvent) return;
+    const shift = 7 * 24 * 60 * 60 * 1000;
+    const newStartAt = new Date(new Date(editingEvent.startAt).getTime() + shift).toISOString();
+    const newEndAt = editingEvent.endAt
+      ? new Date(new Date(editingEvent.endAt).getTime() + shift).toISOString()
+      : undefined;
+    const res = await fetch('/api/schedule', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...editingEvent, id: undefined, startAt: newStartAt, endAt: newEndAt }),
+    });
+    if (res.ok) {
+      toast.success('Etkinlik haftaya kopyalandı');
+      setShowForm(false);
+      setEditingEvent(null);
+      fetchAll();
+    } else {
+      toast.error('Kopyalanamadı');
+    }
+  }, [editingEvent, fetchAll]);
 
   const openCreate = (day: Date, hour: number) => {
     const startAt = new Date(day);
@@ -880,6 +913,7 @@ export default function SchedulePage() {
             onSave={handleSave}
             onClose={() => { setShowForm(false); setEditingEvent(null); }}
             onDelete={editingEvent?.id ? () => handleDelete(editingEvent.id) : undefined}
+            onCopyToNextWeek={editingEvent?.id ? handleCopyToNextWeek : undefined}
           />
         )}
         {showAIWeekly && (

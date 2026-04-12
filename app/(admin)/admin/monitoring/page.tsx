@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { cn, formatDuration } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
@@ -23,6 +23,15 @@ export default function MonitoringPage() {
   const [sourceFilter, setSourceFilter] = useState('');
   const [channelFilter, setChannelFilter] = useState('');
   const [providerFilter, setProviderFilter] = useState('');
+  const [autoCheckEnabled, setAutoCheckEnabled] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('monitoring_auto_check') === '1';
+  });
+  const [autoCheckInterval, setAutoCheckInterval] = useState<number>(() => {
+    if (typeof window === 'undefined') return 15;
+    return parseInt(localStorage.getItem('monitoring_auto_check_interval') ?? '15', 10);
+  });
+  const autoCheckRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -55,6 +64,27 @@ export default function MonitoringPage() {
     const timer = setInterval(fetchAll, 30000);
     return () => clearInterval(timer);
   }, [fetchAll]);
+
+  // ── Auto health-check runner ──────────────────────────────────────────────
+  useEffect(() => {
+    localStorage.setItem('monitoring_auto_check', autoCheckEnabled ? '1' : '0');
+    localStorage.setItem('monitoring_auto_check_interval', String(autoCheckInterval));
+
+    if (autoCheckRef.current) clearInterval(autoCheckRef.current);
+    if (!autoCheckEnabled || adminRole !== 'ops') return;
+
+    const ms = autoCheckInterval * 60_000;
+    autoCheckRef.current = setInterval(async () => {
+      try {
+        await fetch('/api/monitoring/run-health-checks', { method: 'POST' });
+        await fetchAll();
+      } catch { /* silent */ }
+    }, ms);
+
+    return () => {
+      if (autoCheckRef.current) clearInterval(autoCheckRef.current);
+    };
+  }, [autoCheckEnabled, autoCheckInterval, adminRole, fetchAll]);
 
   const filteredLogs = useMemo(
     () => logs.filter((entry) => !sourceFilter || entry.source.includes(sourceFilter)),
@@ -185,6 +215,34 @@ export default function MonitoringPage() {
           <p className="text-white/35 text-xs mt-2 uppercase tracking-[0.18em]">Rol: {adminRole ?? 'viewer'}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          {/* Auto health-check interval */}
+          {adminRole === 'ops' && (
+            <div className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.02] px-3 py-1.5">
+              <label className="flex items-center gap-1.5 text-xs text-white/50 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={autoCheckEnabled}
+                  onChange={e => setAutoCheckEnabled(e.target.checked)}
+                  className="accent-indigo-500"
+                />
+                <span>⚡ Otomatik Kontrol</span>
+              </label>
+              {autoCheckEnabled && (
+                <select
+                  value={autoCheckInterval}
+                  onChange={e => setAutoCheckInterval(Number(e.target.value))}
+                  className="input text-xs py-0.5 px-2 h-7 w-auto ml-1"
+                >
+                  {[5, 10, 15, 30, 60].map(m => (
+                    <option key={m} value={m}>{m} dk</option>
+                  ))}
+                </select>
+              )}
+              {autoCheckEnabled && (
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
+              )}
+            </div>
+          )}
           <button onClick={runHealthChecks} disabled={runningChecks || adminRole !== 'ops'} className="btn-primary text-sm disabled:opacity-50 disabled:cursor-not-allowed">
             {runningChecks ? 'Health-check...' : 'Health-check Çalıştır'}
           </button>

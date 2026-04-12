@@ -178,12 +178,17 @@ function LibraryTab() {
   const [bulkMode, setBulkMode] = useState(false);
   const [selectedNames, setSelectedNames] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  // Folders
+  const [selectedFolder, setSelectedFolder] = useState<string>(''); // '' = all
+  const [newFolderName, setNewFolderName] = useState('');
+  const [showNewFolder, setShowNewFolder] = useState(false);
 
   const fetchMedia = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/media?prefix=media/&limit=200');
+      const prefix = selectedFolder ? `media/${selectedFolder}/` : 'media/';
+      const res = await fetch(`/api/media?prefix=${encodeURIComponent(prefix)}&limit=200`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       setItems(json.data ?? []);
@@ -192,7 +197,7 @@ function LibraryTab() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedFolder]);
 
   useEffect(() => { fetchMedia(); }, [fetchMedia]);
 
@@ -247,11 +252,72 @@ function LibraryTab() {
     return matchSearch && matchType;
   });
 
+  // Derive top-level folder names from item paths  (media/FOLDER/file or media/file)
+  const allItems = items; // unfiltered for folder counting
+  const folderSet = new Set<string>();
+  allItems.forEach(item => {
+    // item.name = "media/somefolder/filename" or "media/filename"
+    const parts = item.name.split('/'); // ['media','somefolder','filename'] or ['media','filename']
+    if (parts.length >= 3) folderSet.add(parts[1]); // subfolder
+  });
+  const folders = Array.from(folderSet).sort();
+
   // Stats
   const totalSize = items.reduce((s, i) => s + i.size, 0);
 
   return (
-    <div className="space-y-5">
+    <div className="flex gap-4">
+      {/* Folder sidebar */}
+      <div className="w-44 flex-shrink-0 space-y-1">
+        <p className="text-[10px] font-bold tracking-widest uppercase text-white/25 mb-2">📁 Klasörler</p>
+        <button
+          onClick={() => { setSelectedFolder(''); setSearch(''); setFilterType('all'); }}
+          className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-all ${selectedFolder === '' ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30' : 'text-white/50 hover:bg-white/5 hover:text-white/80'}`}
+        >
+          Tüm Dosyalar
+        </button>
+        {folders.map(f => (
+          <button
+            key={f}
+            onClick={() => { setSelectedFolder(f); setSearch(''); setFilterType('all'); }}
+            className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-all truncate ${selectedFolder === f ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30' : 'text-white/50 hover:bg-white/5 hover:text-white/80'}`}
+          >
+            📂 {f}
+          </button>
+        ))}
+        {/* New folder */}
+        {showNewFolder ? (
+          <div className="space-y-1.5 pt-1">
+            <input
+              value={newFolderName}
+              onChange={e => setNewFolderName(e.target.value)}
+              placeholder="Klasör adı"
+              className="input w-full text-xs"
+              autoFocus
+              onKeyDown={e => {
+                if (e.key === 'Enter' && newFolderName.trim()) {
+                  setSelectedFolder(newFolderName.trim().replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase());
+                  setNewFolderName('');
+                  setShowNewFolder(false);
+                  toast.success('Klasöre geçildi — yükleme yapınca oluşacak');
+                }
+                if (e.key === 'Escape') { setShowNewFolder(false); setNewFolderName(''); }
+              }}
+            />
+            <p className="text-[10px] text-white/25">Enter ile onayla</p>
+          </div>
+        ) : (
+          <button
+            onClick={() => setShowNewFolder(true)}
+            className="w-full text-left px-3 py-2 rounded-lg text-xs text-white/25 hover:text-white/50 border border-dashed border-white/10 hover:border-white/20 transition-all"
+          >
+            + Yeni Klasör
+          </button>
+        )}
+      </div>
+
+      {/* Main content */}
+      <div className="flex-1 min-w-0 space-y-5">
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-48">
@@ -409,6 +475,7 @@ function LibraryTab() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }
@@ -419,12 +486,16 @@ function UploadTab({ onUploadComplete }: { onUploadComplete: () => void }) {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadedUrl, setUploadedUrl] = useState('');
   const [loading, setLoading] = useState(false);
+  const [uploadFolder, setUploadFolder] = useState(''); // '' = root media/
+  const [customFolder, setCustomFolder] = useState('');
   const dropRef = useRef<HTMLLabelElement>(null);
 
   async function handleUpload() {
     if (!uploadFile || !storage) { toast.error('Firebase Storage bağlı değil'); return; }
     setLoading(true);
-    const path = `media/${Date.now()}_${uploadFile.name}`;
+    const folder = (uploadFolder === '__custom__' ? customFolder.trim() : uploadFolder).replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
+    const prefix = folder ? `media/${folder}/` : 'media/';
+    const path = `${prefix}${Date.now()}_${uploadFile.name}`;
     const storageRef = ref(storage, path);
     const task = uploadBytesResumable(storageRef, uploadFile);
     task.on('state_changed',
@@ -446,6 +517,27 @@ function UploadTab({ onUploadComplete }: { onUploadComplete: () => void }) {
       <div>
         <h2 className="font-semibold text-tv-text">Firebase Storage'a Yükle</h2>
         <p className="text-tv-muted text-sm mt-1">Görseller, videolar ve reklamlar için dosya yükleme</p>
+      </div>
+
+      {/* Folder selector */}
+      <div>
+        <label className="label">Klasör</label>
+        <select value={uploadFolder} onChange={e => setUploadFolder(e.target.value)} className="input w-full">
+          <option value="">Ana Klasör (media/)</option>
+          <option value="reklamlar">reklamlar</option>
+          <option value="icerik">icerik</option>
+          <option value="logolar">logolar</option>
+          <option value="arka-planlar">arka-planlar</option>
+          <option value="__custom__">Özel klasör adı gir…</option>
+        </select>
+        {uploadFolder === '__custom__' && (
+          <input
+            value={customFolder}
+            onChange={e => setCustomFolder(e.target.value)}
+            placeholder="Klasör adı (örn: nisan-2026)"
+            className="input w-full mt-2"
+          />
+        )}
       </div>
 
       {/* Drop zone */}
