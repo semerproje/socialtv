@@ -1,7 +1,7 @@
 # Social Lounge TV — Sektör Zirvesi Geliştirme Planı
 
-> Versiyon: 2.0  
-> Tarih: 11 Nisan 2026  
+> Versiyon: 2.1  
+> Güncelleme: Mayıs 2025  
 > Hedef: Dijital tabela / sosyal TV platformu sektörünün en iyi uygulaması
 
 ---
@@ -11,15 +11,15 @@
 | Katman | Durum | Not |
 |--------|-------|-----|
 | Altyapı | ✅ Stabil | Firebase App Hosting, Firestore, Next.js 16 |
-| Deploy | ✅ Çalışıyor | f40cf5e canlıda |
+| Deploy | ✅ Çalışıyor | `git push origin main` → otomatik build |
 | Ekran yayını | ✅ Çalışıyor | Firestore onSnapshot, HEAD ping 30s |
-| AI Motor | ✅ Gemini 2.0 | logAIRequest Firestore'a yazıyor |
-| Admin Auth | ✅ Çalışıyor | sa@socialtv.com ops yetkili |
-| Prisma | ✅ Temizlendi | Artık sadece Firestore |
-| Instagram API | ❌ Kırık | Meta endpoint kapandı |
-| Gemini Key | ⚠️ Placeholder | Üretimde AI çalışmıyor |
-| Analytics | ⚠️ Temel | Grafik var, derinlik yok |
-| Admin UX | ⚠️ Orta | Bazı sayfalar taslak düzeyi |
+| **Playlist Engine** | ✅ **Tamamlandı** | PlaylistPlayer + public API + start/stop komutları |
+| **Dashboard** | ✅ **Güncellendi** | Playlist hızlı gönder/durdur paneli eklendi |
+| Playlist Admin | ✅ Tamamlandı | 3-panel UI, send-to-screen, ItemPreviewPanel |
+| AI Motor | ✅ Gemini 2.0 | Firestore'a loglanıyor |
+| Admin Auth | ✅ Çalışıyor | Firebase token auto-refresh |
+| Analytics | ⚠️ Temel | Grafik var, derinlik planlanıyor (Faz 2) |
+| Admin UX | ⚠️ Orta | Bazı sayfalar kademeli güncelleniyor |
 
 ---
 
