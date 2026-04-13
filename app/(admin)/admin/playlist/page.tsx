@@ -100,11 +100,12 @@ function Toggle({ on, onChange, color = 'bg-indigo-500' }: { on: boolean; onChan
 
 // ─── Playlist Form Modal ──────────────────────────────────────────────────────
 
-function PlaylistForm({ initial, screens, onSave, onClose }: {
+function PlaylistForm({ initial, screens, onSave, onClose, preScreenId }: {
   initial?: Partial<Playlist>;
   screens: ScreenData[];
   onSave: (data: Partial<Playlist>) => void;
   onClose: () => void;
+  preScreenId?: string | null;
 }) {
   const [form, setForm] = useState({
     name: initial?.name ?? '',
@@ -113,7 +114,9 @@ function PlaylistForm({ initial, screens, onSave, onClose }: {
     shuffle: initial?.shuffle ?? false,
     transition: (initial?.transition ?? 'fade') as PlaylistTransition,
     defaultDuration: initial?.defaultDuration ?? 10,
-    screenIds: initial?.screenIds ? (JSON.parse(initial.screenIds as string) as string[]) : [] as string[],
+    screenIds: initial?.screenIds
+      ? (JSON.parse(initial.screenIds as string) as string[])
+      : preScreenId ? [preScreenId] : [] as string[],
   });
 
   const toggleScreen = (id: string) =>
@@ -605,6 +608,8 @@ export default function PlaylistPage() {
   const [deletingPlaylistId, setDeletingPlaylistId] = useState<string | null>(null);
   const [showSendMenu, setShowSendMenu]             = useState(false);
   const [timelineHover, setTimelineHover]           = useState<string | null>(null);
+  const [screenFilter, setScreenFilter]             = useState<string | null>(null);
+  const [assigningScreen, setAssigningScreen]       = useState(false);
 
   const reorderTimeout = useRef<ReturnType<typeof setTimeout>>();
   const sendMenuRef    = useRef<HTMLDivElement>(null);
@@ -790,10 +795,47 @@ export default function PlaylistPage() {
     } catch { toast.error('Gönderme başarısız'); }
   };
 
+  const sendToAssignedScreens = async () => {
+    if (!selectedPlaylist) return;
+    const ids = parseScreenIds(selectedPlaylist);
+    if (!ids.length) return;
+    for (const screenId of ids) {
+      await sendToScreen(screenId);
+    }
+  };
+
+  const toggleScreenAssignment = async (screenId: string) => {
+    if (!selectedPlaylist) return;
+    setAssigningScreen(true);
+    try {
+      const current = parseScreenIds(selectedPlaylist);
+      const updated = current.includes(screenId)
+        ? current.filter((id) => id !== screenId)
+        : [...current, screenId];
+      await fetch(`/api/playlists/${selectedPlaylist.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ screenIds: JSON.stringify(updated) }),
+      });
+      setSelectedPlaylist({ ...selectedPlaylist, screenIds: JSON.stringify(updated) });
+      await fetchPlaylists();
+    } catch { toast.error('Ekran ataması güncellenemedi'); }
+    finally { setAssigningScreen(false); }
+  };
+
+  const parseScreenIds = (p: Playlist): string[] => {
+    if (!p.screenIds) return [];
+    try { return JSON.parse(p.screenIds); } catch { return []; }
+  };
+
   const filteredPlaylists = playlists.filter((p) => {
     if (search && !p.name.toLowerCase().includes(search.toLowerCase())) return false;
     if (filterActive === 'active' && !p.isActive) return false;
     if (filterActive === 'inactive' && p.isActive) return false;
+    if (screenFilter) {
+      const ids = parseScreenIds(p);
+      if (!ids.includes(screenFilter)) return false;
+    }
     return true;
   });
 
@@ -805,21 +847,12 @@ export default function PlaylistPage() {
     try { return JSON.parse(selectedPlaylist.screenIds as string) as string[]; } catch { return [] as string[]; }
   })();
 
-  const getAssignedScreenNames = (p: Playlist): string => {
-    if (!p.screenIds) return '—';
-    try {
-      const ids: string[] = JSON.parse(p.screenIds);
-      if (!ids.length) return '—';
-      const names = ids.map((id) => screens.find((s) => s.id === id)?.name ?? id);
-      return names.slice(0, 2).join(', ') + (names.length > 2 ? ` +${names.length - 2}` : '');
-    } catch { return '—'; }
-  };
-
   return (
     <div className="flex h-[calc(100vh-4rem)] overflow-hidden bg-[#060c18]">
 
       {/* LEFT PANEL */}
       <div className="w-72 border-r border-white/6 flex flex-col flex-shrink-0 bg-[#080e1c]">
+        {/* Header + create */}
         <div className="px-4 pt-4 pb-3 border-b border-white/6 space-y-3">
           <div className="flex items-center justify-between">
             <h1 className="text-sm font-semibold text-white">Playlistler</h1>
@@ -827,8 +860,53 @@ export default function PlaylistPage() {
           </div>
           <button onClick={() => { setEditingPlaylist(null); setShowCreateModal(true); }}
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-sm transition-colors shadow-lg shadow-indigo-500/20">
-            <span className="text-base font-light">+</span> Yeni Playlist
+            <span className="text-base font-light">+</span>
+            {screenFilter ? `${screens.find(s => s.id === screenFilter)?.name ?? 'Ekrana'} Playlist Ekle` : 'Yeni Playlist'}
           </button>
+        </div>
+
+        {/* Screen filter chips */}
+        {screens.length > 0 && (
+          <div className="px-3 py-2.5 border-b border-white/6">
+            <p className="text-[10px] uppercase tracking-wider text-white/20 mb-2">Ekrana Göre Filtrele</p>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                onClick={() => setScreenFilter(null)}
+                className={cn(
+                  'flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-all',
+                  screenFilter === null
+                    ? 'bg-indigo-500/20 border-indigo-500/40 text-indigo-300'
+                    : 'border-white/8 bg-white/3 text-white/35 hover:border-white/15 hover:text-white/60'
+                )}
+              >
+                Tümü
+                <span className="text-[10px] opacity-60 ml-0.5">({playlists.length})</span>
+              </button>
+              {screens.map((s) => {
+                const count = playlists.filter((p) => parseScreenIds(p).includes(s.id)).length;
+                return (
+                  <button
+                    key={s.id}
+                    onClick={() => setScreenFilter(screenFilter === s.id ? null : s.id)}
+                    className={cn(
+                      'flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-all',
+                      screenFilter === s.id
+                        ? 'bg-indigo-500/20 border-indigo-500/40 text-indigo-300'
+                        : 'border-white/8 bg-white/3 text-white/35 hover:border-white/15 hover:text-white/60'
+                    )}
+                  >
+                    <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', s.isOnline ? 'bg-emerald-400' : 'bg-white/15')} />
+                    <span className="truncate max-w-[80px]">{s.name}</span>
+                    {count > 0 && <span className="text-[10px] opacity-50">({count})</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Search + active filter */}
+        <div className="px-4 py-2.5 border-b border-white/6 space-y-2">
           <div className="relative">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/20 text-xs">🔍</span>
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Ara..."
@@ -852,42 +930,78 @@ export default function PlaylistPage() {
               <span className="text-xs">Yükleniyor…</span>
             </div>
           ) : filteredPlaylists.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-40 text-white/20 gap-2">
-              <span className="text-3xl">🎵</span>
-              <p className="text-xs">{search ? 'Sonuç bulunamadı' : 'Henüz playlist yok'}</p>
+            <div className="flex flex-col items-center justify-center h-48 text-white/20 gap-3 px-4 text-center">
+              <span className="text-3xl">{screenFilter ? '🖥' : '🎵'}</span>
+              {screenFilter ? (
+                <>
+                  <p className="text-xs text-white/30">
+                    <span className="font-semibold text-white/50">{screens.find(s => s.id === screenFilter)?.name}</span>
+                    {' '}ekranına atanmış playlist yok
+                  </p>
+                  <button
+                    onClick={() => { setEditingPlaylist(null); setShowCreateModal(true); }}
+                    className="px-4 py-2 rounded-xl bg-indigo-600/70 hover:bg-indigo-500 text-white text-xs font-medium transition-colors"
+                  >
+                    + Bu ekrana playlist oluştur
+                  </button>
+                </>
+              ) : (
+                <p className="text-xs">{search ? 'Sonuç bulunamadı' : 'Henüz playlist yok'}</p>
+              )}
             </div>
           ) : (
-            filteredPlaylists.map((p) => (
-              <div key={p.id} onClick={() => loadPlaylist(p.id)}
-                className={cn('group relative flex items-start gap-3 p-3 rounded-xl cursor-pointer transition-all border',
-                  selectedPlaylist?.id === p.id
-                    ? 'border-indigo-500/40 bg-indigo-500/8'
-                    : 'border-transparent hover:border-white/6 hover:bg-white/3')}>
-                <div className={cn('absolute left-0 top-3 bottom-3 w-0.5 rounded-r-full transition-all',
-                  p.isActive ? 'bg-emerald-400/60' : 'bg-white/10')} />
-                <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center text-sm flex-shrink-0 mt-0.5',
-                  selectedPlaylist?.id === p.id ? 'bg-indigo-500/25' : 'bg-white/6')}>🎵</div>
-                <div className="flex-1 min-w-0">
-                  <span className="text-xs font-medium text-white truncate block">{p.name}</span>
-                  <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-white/25">
-                    <span>{p.itemCount ?? 0} öğe</span><span>·</span><span>{fmtTotalDuration(p.totalDuration ?? 0)}</span>
+            filteredPlaylists.map((p) => {
+              const pScreenIds = parseScreenIds(p);
+              const pScreenNames = pScreenIds.map((id) => screens.find((s) => s.id === id)).filter(Boolean);
+              return (
+                <div key={p.id} onClick={() => loadPlaylist(p.id)}
+                  className={cn('group relative flex items-start gap-3 p-3 rounded-xl cursor-pointer transition-all border',
+                    selectedPlaylist?.id === p.id
+                      ? 'border-indigo-500/40 bg-indigo-500/8'
+                      : 'border-transparent hover:border-white/6 hover:bg-white/3')}>
+                  <div className={cn('absolute left-0 top-3 bottom-3 w-0.5 rounded-r-full transition-all',
+                    p.isActive ? 'bg-emerald-400/60' : 'bg-white/10')} />
+                  <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center text-sm flex-shrink-0 mt-0.5',
+                    selectedPlaylist?.id === p.id ? 'bg-indigo-500/25' : 'bg-white/6')}>🎵</div>
+                  <div className="flex-1 min-w-0">
+                    <span className="text-xs font-medium text-white truncate block">{p.name}</span>
+                    <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-white/25">
+                      <span>{p.itemCount ?? 0} öğe</span><span>·</span><span>{fmtTotalDuration(p.totalDuration ?? 0)}</span>
+                    </div>
+                    {pScreenNames.length > 0 ? (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {pScreenNames.slice(0, 3).map((s) => s && (
+                          <span key={s.id} className={cn(
+                            'inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px]',
+                            s.isOnline ? 'bg-emerald-500/15 text-emerald-300/70' : 'bg-white/5 text-white/25'
+                          )}>
+                            <span className={cn('w-1 h-1 rounded-full', s.isOnline ? 'bg-emerald-400' : 'bg-white/20')} />
+                            {s.name}
+                          </span>
+                        ))}
+                        {pScreenNames.length > 3 && (
+                          <span className="text-[10px] text-white/20">+{pScreenNames.length - 3}</span>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-[10px] text-white/15 mt-0.5">Ekrana atanmamış</div>
+                    )}
                   </div>
-                  <div className="text-[10px] text-white/15 truncate mt-0.5">{getAssignedScreenNames(p)}</div>
+                  <div className="flex-shrink-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={(e) => { e.stopPropagation(); handleToggleActive(p); }}
+                      title={p.isActive ? 'Pasife al' : 'Aktive al'}
+                      className={cn('w-6 h-6 rounded flex items-center justify-center text-[10px] transition-colors',
+                        p.isActive ? 'text-emerald-400 hover:bg-emerald-500/10' : 'text-white/20 hover:bg-white/8')}>
+                      {p.isActive ? '●' : '○'}
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); setEditingPlaylist(p); setShowCreateModal(true); }}
+                      className="w-6 h-6 rounded flex items-center justify-center text-[10px] text-white/20 hover:text-white/70 hover:bg-white/8 transition-colors">✏</button>
+                    <button onClick={(e) => { e.stopPropagation(); setDeletingPlaylistId(p.id); }}
+                      className="w-6 h-6 rounded flex items-center justify-center text-[10px] text-white/20 hover:text-red-400 hover:bg-red-500/8 transition-colors">✕</button>
+                  </div>
                 </div>
-                <div className="flex-shrink-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button onClick={(e) => { e.stopPropagation(); handleToggleActive(p); }}
-                    title={p.isActive ? 'Pasife al' : 'Aktive al'}
-                    className={cn('w-6 h-6 rounded flex items-center justify-center text-[10px] transition-colors',
-                      p.isActive ? 'text-emerald-400 hover:bg-emerald-500/10' : 'text-white/20 hover:bg-white/8')}>
-                    {p.isActive ? '●' : '○'}
-                  </button>
-                  <button onClick={(e) => { e.stopPropagation(); setEditingPlaylist(p); setShowCreateModal(true); }}
-                    className="w-6 h-6 rounded flex items-center justify-center text-[10px] text-white/20 hover:text-white/70 hover:bg-white/8 transition-colors">✏</button>
-                  <button onClick={(e) => { e.stopPropagation(); setDeletingPlaylistId(p.id); }}
-                    className="w-6 h-6 rounded flex items-center justify-center text-[10px] text-white/20 hover:text-red-400 hover:bg-red-500/8 transition-colors">✕</button>
-                </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
 
@@ -917,66 +1031,111 @@ export default function PlaylistPage() {
         ) : (
           <>
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/6 flex-shrink-0 bg-[#080e1c]">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <h2 className="text-base font-semibold text-white truncate">{selectedPlaylist.name}</h2>
-                  <button onClick={() => handleToggleActive(selectedPlaylist)}
-                    className={cn('px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border transition-all',
-                      selectedPlaylist.isActive
-                        ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25 hover:bg-emerald-500/25'
-                        : 'bg-white/5 text-white/30 border-white/10 hover:bg-white/8')}>
-                    {selectedPlaylist.isActive ? '● Aktif' : '○ Pasif'}
-                  </button>
+            <div className="flex flex-col gap-0 border-b border-white/6 flex-shrink-0 bg-[#080e1c]">
+              {/* Title row */}
+              <div className="flex items-center justify-between px-5 py-3.5">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-base font-semibold text-white truncate">{selectedPlaylist.name}</h2>
+                    <button onClick={() => handleToggleActive(selectedPlaylist)}
+                      className={cn('px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border transition-all',
+                        selectedPlaylist.isActive
+                          ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25 hover:bg-emerald-500/25'
+                          : 'bg-white/5 text-white/30 border-white/10 hover:bg-white/8')}>
+                      {selectedPlaylist.isActive ? '● Aktif' : '○ Pasif'}
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-3 text-[11px] text-white/30 mt-0.5 flex-wrap">
+                    <span><span className="font-semibold text-white/50">{activeItems.length}</span> öğe aktif</span>
+                    <span className="text-white/10">·</span>
+                    <span>{fmtTotalDuration(totalActiveDuration)}</span>
+                    <span className="text-white/10">·</span>
+                    <span>{selectedPlaylist.loop ? '🔁 Döngü' : '→ Bir kez'}</span>
+                    {selectedPlaylist.shuffle && <><span className="text-white/10">·</span><span>🔀 Karışık</span></>}
+                  </div>
                 </div>
-                <div className="flex items-center gap-3 text-[11px] text-white/30 mt-0.5 flex-wrap">
-                  <span><span className="font-semibold text-white/50">{activeItems.length}</span> öğe aktif</span>
-                  <span className="text-white/10">·</span>
-                  <span>{fmtTotalDuration(totalActiveDuration)}</span>
-                  <span className="text-white/10">·</span>
-                  <span>{selectedPlaylist.loop ? '🔁 Döngü' : '→ Bir kez'}</span>
-                  {selectedPlaylist.shuffle && <><span className="text-white/10">·</span><span>🔀 Karışık</span></>}
-                  {assignedScreens.length > 0 && <><span className="text-white/10">·</span><span>{assignedScreens.length} ekran</span></>}
-                </div>
-              </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <div className="relative" ref={sendMenuRef}>
-                  <button onClick={() => setShowSendMenu(v => !v)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/10 text-white/60 hover:text-white hover:bg-white/5 transition-all text-sm">
-                    <span>📡</span><span>Ekrana Gönder</span><span className="text-white/30 text-xs">▾</span>
-                  </button>
-                  <AnimatePresence>
-                    {showSendMenu && (
-                      <motion.div initial={{ opacity: 0, y: 6, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: 6, scale: 0.97 }} transition={{ duration: 0.15 }}
-                        className="absolute right-0 top-full mt-1.5 w-56 bg-[#0d1424] border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50">
-                        <button onClick={() => sendToScreen('all')}
-                          className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 transition-colors text-sm text-white/80 hover:text-white border-b border-white/6">
-                          <span>📡</span><span>Tüm Ekranlar</span>
-                          <span className="ml-auto text-xs text-white/25">{screens.filter(s => s.isOnline).length} canlı</span>
-                        </button>
-                        {screens.length === 0 ? (
-                          <p className="px-4 py-3 text-xs text-white/25">Ekran bulunamadı</p>
-                        ) : screens.map((s) => (
-                          <button key={s.id} onClick={() => sendToScreen(s.id)}
-                            className="w-full flex items-center gap-3 px-4 py-2 hover:bg-white/5 transition-colors text-sm text-white/60 hover:text-white">
-                            <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', s.isOnline ? 'bg-emerald-400' : 'bg-white/20')} />
-                            <span className="truncate">{s.name}</span>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {assignedScreens.length > 0 && (
+                    <button
+                      onClick={sendToAssignedScreens}
+                      title={`Atanan ekranlara gönder: ${assignedScreens.map(id => screens.find(s => s.id === id)?.name ?? id).join(', ')}`}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 transition-all text-sm"
+                    >
+                      <span>▶</span>
+                      <span className="hidden xl:inline">Atanan Ekranlar</span>
+                      <span className="text-emerald-400/60 text-xs">({assignedScreens.length})</span>
+                    </button>
+                  )}
+                  <div className="relative" ref={sendMenuRef}>
+                    <button onClick={() => setShowSendMenu(v => !v)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/10 text-white/60 hover:text-white hover:bg-white/5 transition-all text-sm">
+                      <span>📡</span><span className="hidden xl:inline">Ekrana Gönder</span><span className="text-white/30 text-xs">▾</span>
+                    </button>
+                    <AnimatePresence>
+                      {showSendMenu && (
+                        <motion.div initial={{ opacity: 0, y: 6, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: 6, scale: 0.97 }} transition={{ duration: 0.15 }}
+                          className="absolute right-0 top-full mt-1.5 w-56 bg-[#0d1424] border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50">
+                          <button onClick={() => sendToScreen('all')}
+                            className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 transition-colors text-sm text-white/80 hover:text-white border-b border-white/6">
+                            <span>📡</span><span>Tüm Ekranlar</span>
+                            <span className="ml-auto text-xs text-white/25">{screens.filter(s => s.isOnline).length} canlı</span>
                           </button>
-                        ))}
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                          {screens.length === 0 ? (
+                            <p className="px-4 py-3 text-xs text-white/25">Ekran bulunamadı</p>
+                          ) : screens.map((s) => (
+                            <button key={s.id} onClick={() => sendToScreen(s.id)}
+                              className="w-full flex items-center gap-3 px-4 py-2 hover:bg-white/5 transition-colors text-sm text-white/60 hover:text-white">
+                              <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', s.isOnline ? 'bg-emerald-400' : 'bg-white/20')} />
+                              <span className="truncate">{s.name}</span>
+                              {assignedScreens.includes(s.id) && <span className="ml-auto text-[10px] text-indigo-400">atanmış</span>}
+                            </button>
+                          ))}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                  <button onClick={() => { setEditingPlaylist(selectedPlaylist); setShowCreateModal(true); }}
+                    className="px-3 py-1.5 rounded-xl border border-white/10 text-white/50 hover:text-white hover:bg-white/5 transition-all text-sm">
+                    ✏ Düzenle
+                  </button>
+                  <button onClick={() => setShowAddItem(true)}
+                    className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors shadow-lg shadow-indigo-500/15">
+                    + Öğe Ekle
+                  </button>
                 </div>
-                <button onClick={() => { setEditingPlaylist(selectedPlaylist); setShowCreateModal(true); }}
-                  className="px-3 py-1.5 rounded-xl border border-white/10 text-white/50 hover:text-white hover:bg-white/5 transition-all text-sm">
-                  ✏ Düzenle
-                </button>
-                <button onClick={() => setShowAddItem(true)}
-                  className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors shadow-lg shadow-indigo-500/15">
-                  + Öğe Ekle
-                </button>
               </div>
+
+              {/* Inline Screen Assignment Row */}
+              {screens.length > 0 && (
+                <div className="px-5 pb-3 flex items-center gap-2 flex-wrap">
+                  <span className="text-[11px] text-white/25 flex-shrink-0">Ekranlar:</span>
+                  {screens.map((s) => {
+                    const isAssigned = assignedScreens.includes(s.id);
+                    return (
+                      <button
+                        key={s.id}
+                        onClick={() => toggleScreenAssignment(s.id)}
+                        disabled={assigningScreen}
+                        title={isAssigned ? `${s.name} atamasını kaldır` : `${s.name} ekranına ata`}
+                        className={cn(
+                          'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] border transition-all disabled:opacity-50',
+                          isAssigned
+                            ? 'bg-indigo-500/20 border-indigo-500/40 text-indigo-200 hover:bg-red-500/15 hover:border-red-500/30 hover:text-red-300'
+                            : 'bg-white/3 border-white/8 text-white/30 hover:bg-indigo-500/10 hover:border-indigo-500/25 hover:text-indigo-300'
+                        )}
+                      >
+                        <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', s.isOnline ? 'bg-emerald-400' : 'bg-white/20')} />
+                        {s.name}
+                        {isAssigned && <span className="text-indigo-400/70 text-[10px]">✓</span>}
+                      </button>
+                    );
+                  })}
+                  {assignedScreens.length === 0 && (
+                    <span className="text-[11px] text-amber-400/50">Henüz ekran atanmamış</span>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Item list */}
@@ -1113,8 +1272,13 @@ export default function PlaylistPage() {
       {/* Modals */}
       <AnimatePresence>
         {showCreateModal && (
-          <PlaylistForm initial={editingPlaylist ?? undefined} screens={screens} onSave={handleSavePlaylist}
-            onClose={() => { setShowCreateModal(false); setEditingPlaylist(null); }} />
+          <PlaylistForm
+            initial={editingPlaylist ?? undefined}
+            screens={screens}
+            onSave={handleSavePlaylist}
+            preScreenId={!editingPlaylist ? screenFilter : null}
+            onClose={() => { setShowCreateModal(false); setEditingPlaylist(null); }}
+          />
         )}
       </AnimatePresence>
 
