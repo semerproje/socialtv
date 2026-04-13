@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getNextAd } from '@/lib/ad-scheduler';
 import { getWeatherDescription } from '@/lib/utils';
@@ -67,8 +67,11 @@ async function fetchNews(): Promise<NewsItem[] | undefined> {
   } catch { return undefined; }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const { searchParams } = new URL(request.url);
+    const screenId = searchParams.get('screenId') ?? undefined;
+
     // Fetch all data in parallel
     const [settings, content, tickers, currentAd] = await Promise.all([
       db.setting.findMany(),
@@ -83,7 +86,7 @@ export async function GET() {
           endDate: true,  // filter expired tickers
         },
       }),
-      getNextAd(),
+      getNextAd({ screenId, consume: true }),
     ]);
 
     const settingsMap = Object.fromEntries(settings.map((s: { key: string; value: string }) => [s.key, s.value]));
@@ -109,7 +112,7 @@ export async function GET() {
     }
 
     // Get next ad (for pre-loading)
-    const nextAd = currentAd ? await getNextAd(currentAd.id) : null;
+    const nextAd = currentAd ? await getNextAd({ excludeId: currentAd.id, screenId }) : null;
 
     const displayData: DisplayData = {
       currentAd: currentAd as DisplayData['currentAd'],

@@ -79,6 +79,7 @@ export interface Content {
   moderationPassed: boolean;
   externalId?: string;
   externalUrl?: string;
+  scheduledFor?: Date | string;
   postedAt: Date | string;
   createdAt: Date | string;
 }

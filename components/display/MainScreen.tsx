@@ -116,7 +116,9 @@ export default function MainScreen({ screenId: urlScreenId }: MainScreenProps) {
   // ── Fetch display data ──────────────────────────────────────────────────────
   const fetchDisplay = useCallback(async () => {
     try {
-      const res = await fetch('/api/display', { cache: 'no-store' });
+      const sid = screenIdRef.current;
+      const query = sid ? `?screenId=${encodeURIComponent(sid)}` : '';
+      const res = await fetch(`/api/display${query}`, { cache: 'no-store' });
       if (res.ok) {
         const json: DisplayData = await res.json();
         setData(json);
@@ -404,7 +406,7 @@ export default function MainScreen({ screenId: urlScreenId }: MainScreenProps) {
   useEffect(() => {
     adTimerRef.current = setTimeout(() => {
       // Check frequency cap before showing
-      const ad = data?.currentAd as (typeof data)['currentAd'] & { maxPerHour?: number; maxPerDay?: number; cooldownSeconds?: number } | undefined;
+      const ad = data?.currentAd as (DisplayData['currentAd'] & { maxPerHour?: number; maxPerDay?: number; cooldownSeconds?: number }) | undefined;
       if (ad && !checkFreqCap(ad.id, ad.maxPerHour, ad.maxPerDay, ad.cooldownSeconds)) {
         // Skip this ad slot — advance index to try the next ad on next cycle
         setAdIndex((i) => i + 1);
