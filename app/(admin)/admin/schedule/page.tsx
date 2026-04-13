@@ -664,6 +664,12 @@ export default function SchedulePage() {
     nextStartAt: string;
   } | null>(null);
   const [resolvingConflictId, setResolvingConflictId] = useState<string | null>(null);
+  const [previewPlans, setPreviewPlans] = useState<Record<string, {
+    eventId: string;
+    title: string;
+    nextStartAt: string;
+    nextEndAt: string;
+  }>>({});
   const [showPrimeTime, setShowPrimeTime] = useState(false);
   const [primeSlots, setPrimeSlots] = useState<PrimeTimeSlot[]>([]);
   const [templates, setTemplates] = useState<WeeklyTemplate[]>([]);
@@ -960,19 +966,12 @@ export default function SchedulePage() {
   });
 
   const autoResolveConflict = async (conflict: { a: ScheduleEvent; b: ScheduleEvent }) => {
-    const first = new Date(conflict.a.startAt).getTime() <= new Date(conflict.b.startAt).getTime() ? conflict.a : conflict.b;
-    const second = first.id === conflict.a.id ? conflict.b : conflict.a;
-    const firstPriority = getPriorityScore(first.priority);
-    const secondPriority = getPriorityScore(second.priority);
-    const moveTarget = secondPriority < firstPriority ? second : firstPriority < secondPriority ? first : second;
-    const anchor = moveTarget.id === second.id ? first : second;
-
-    const moveStart = new Date(moveTarget.startAt);
-    const moveEnd = moveTarget.endAt ? new Date(moveTarget.endAt) : new Date(moveStart.getTime() + 60 * 60 * 1000);
-    const durationMs = Math.max(30 * 60 * 1000, moveEnd.getTime() - moveStart.getTime());
-    const anchorEnd = anchor.endAt ? new Date(anchor.endAt) : new Date(new Date(anchor.startAt).getTime() + 60 * 60 * 1000);
-    const nextStart = new Date(anchorEnd.getTime() + 15 * 60 * 1000);
-    const nextEnd = new Date(nextStart.getTime() + durationMs);
+    const plan = getConflictMovePlan(conflict);
+    if (!plan) {
+      toast.error('Çözüm planı üretilemedi');
+      return;
+    }
+    const { moveTarget, nextStart, nextEnd } = plan;
     setResolvingConflictId(moveTarget.id);
 
     try {
@@ -994,12 +993,57 @@ export default function SchedulePage() {
         nextStartAt: nextStart.toISOString(),
       });
       setConflictAiSuggestions(null);
+      setPreviewPlans((prev) => {
+        const next = { ...prev };
+        delete next[`${conflict.a.id}-${conflict.b.id}`];
+        delete next[`${conflict.b.id}-${conflict.a.id}`];
+        return next;
+      });
       await fetchAll();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Çakışma çözülemedi');
     } finally {
       setResolvingConflictId(null);
     }
+  };
+
+  const getConflictMovePlan = (conflict: { a: ScheduleEvent; b: ScheduleEvent }) => {
+    const first = new Date(conflict.a.startAt).getTime() <= new Date(conflict.b.startAt).getTime() ? conflict.a : conflict.b;
+    const second = first.id === conflict.a.id ? conflict.b : conflict.a;
+    const firstPriority = getPriorityScore(first.priority);
+    const secondPriority = getPriorityScore(second.priority);
+    const moveTarget = secondPriority < firstPriority ? second : firstPriority < secondPriority ? first : second;
+    const anchor = moveTarget.id === second.id ? first : second;
+
+    const moveStart = new Date(moveTarget.startAt);
+    const moveEnd = moveTarget.endAt ? new Date(moveTarget.endAt) : new Date(moveStart.getTime() + 60 * 60 * 1000);
+    const durationMs = Math.max(30 * 60 * 1000, moveEnd.getTime() - moveStart.getTime());
+    const anchorEnd = anchor.endAt ? new Date(anchor.endAt) : new Date(new Date(anchor.startAt).getTime() + 60 * 60 * 1000);
+    const nextStart = new Date(anchorEnd.getTime() + 15 * 60 * 1000);
+    const nextEnd = new Date(nextStart.getTime() + durationMs);
+    return { moveTarget, nextStart, nextEnd };
+  };
+
+  const toggleConflictPreview = (conflict: { a: ScheduleEvent; b: ScheduleEvent }) => {
+    const key = `${conflict.a.id}-${conflict.b.id}`;
+    setPreviewPlans((prev) => {
+      if (prev[key]) {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      }
+      const plan = getConflictMovePlan(conflict);
+      if (!plan) return prev;
+      return {
+        ...prev,
+        [key]: {
+          eventId: plan.moveTarget.id,
+          title: plan.moveTarget.title,
+          nextStartAt: plan.nextStart.toISOString(),
+          nextEndAt: plan.nextEnd.toISOString(),
+        },
+      };
+    });
   };
 
   const undoLastResolve = async () => {
@@ -1123,18 +1167,33 @@ export default function SchedulePage() {
                   )}
                   {conflictRows.map((row) => (
                     <div key={row.key} className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-2">
+                      {previewPlans[`${row.conflict.a.id}-${row.conflict.b.id}`] && (
+                        <div className="mb-2 rounded-lg border border-sky-500/35 bg-sky-500/12 px-2 py-1.5">
+                          <p className="text-[11px] text-sky-200/90">
+                            Önizleme: {previewPlans[`${row.conflict.a.id}-${row.conflict.b.id}`].title} → {new Date(previewPlans[`${row.conflict.a.id}-${row.conflict.b.id}`].nextStartAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        </div>
+                      )}
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <p className="text-xs text-white/85">{row.left} <span className="text-white/25">↔</span> {row.right}</p>
                           <p className="text-[10px] text-white/40 mt-0.5">Kapsam: {row.scope}</p>
                         </div>
-                        <button
-                          onClick={() => autoResolveConflict(row.conflict)}
-                          disabled={resolvingConflictId === row.conflict.a.id || resolvingConflictId === row.conflict.b.id}
-                          className="text-[10px] px-2 py-1 rounded-lg border border-emerald-500/40 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 transition-all flex-shrink-0 disabled:opacity-40"
-                        >
-                          {resolvingConflictId === row.conflict.a.id || resolvingConflictId === row.conflict.b.id ? '⏳ Çözülüyor' : 'Hızlı Çöz'}
-                        </button>
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          <button
+                            onClick={() => toggleConflictPreview(row.conflict)}
+                            className="text-[10px] px-2 py-1 rounded-lg border border-sky-500/40 bg-sky-500/15 text-sky-300 hover:bg-sky-500/25 transition-all"
+                          >
+                            {previewPlans[`${row.conflict.a.id}-${row.conflict.b.id}`] ? 'Önizlemeyi Kapat' : 'Önizle'}
+                          </button>
+                          <button
+                            onClick={() => autoResolveConflict(row.conflict)}
+                            disabled={resolvingConflictId === row.conflict.a.id || resolvingConflictId === row.conflict.b.id}
+                            className="text-[10px] px-2 py-1 rounded-lg border border-emerald-500/40 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 transition-all disabled:opacity-40"
+                          >
+                            {resolvingConflictId === row.conflict.a.id || resolvingConflictId === row.conflict.b.id ? '⏳ Çözülüyor' : 'Hızlı Çöz'}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}
