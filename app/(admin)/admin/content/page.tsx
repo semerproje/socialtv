@@ -77,6 +77,7 @@ export default function ContentPage() {
   const [aiAnalyzing, setAiAnalyzing] = useState<string | null>(null);
   const [aiToAdId, setAiToAdId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [similarMatches, setSimilarMatches] = useState<Array<{ id: string; author: string; text: string; distance: number }>>([]);
   const router = useRouter();
 
   const fetchContent = useCallback(async () => {
@@ -242,6 +243,7 @@ export default function ContentPage() {
   const handleSave = async () => {
     setSaving(true);
     try {
+      setSimilarMatches([]);
       const url = editingId ? `/api/content/${editingId}` : '/api/content';
       const method = editingId ? 'PUT' : 'POST';
       const res = await fetch(url, {
@@ -255,6 +257,9 @@ export default function ContentPage() {
         fetchContent();
       } else {
         const err = await res.json();
+        if (res.status === 409 && Array.isArray(err.similar)) {
+          setSimilarMatches(err.similar);
+        }
         toast.error(err.error ?? 'Hata');
       }
     } finally {
@@ -395,8 +400,22 @@ export default function ContentPage() {
           <div className="w-full max-w-xl max-h-[85vh] overflow-y-auto admin-card space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-bold text-tv-text">İçerik Ekle</h2>
-              <button onClick={() => setShowForm(false)} className="text-tv-muted hover:text-tv-text text-xl">✕</button>
+              <button onClick={() => { setShowForm(false); setSimilarMatches([]); }} className="text-tv-muted hover:text-tv-text text-xl">✕</button>
             </div>
+            {similarMatches.length > 0 && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
+                <p className="text-xs font-semibold text-amber-300 mb-2">Benzer içerik bulundu</p>
+                <div className="space-y-1.5">
+                  {similarMatches.slice(0, 3).map((m) => (
+                    <div key={m.id} className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-2">
+                      <p className="text-xs text-tv-text/90">{m.author} · Mesafe: {m.distance}</p>
+                      <p className="text-[11px] text-tv-muted line-clamp-2 mt-0.5">{m.text}</p>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[10px] text-tv-muted mt-2">Var olan kaydı güncelleyin veya metni farklılaştırarak tekrar deneyin.</p>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs text-tv-muted mb-1 block">Platform</label>
@@ -474,7 +493,7 @@ export default function ContentPage() {
               </div>
             </div>
             <div className="flex gap-3">
-              <button onClick={() => setShowForm(false)} className="btn-secondary flex-1">İptal</button>
+              <button onClick={() => { setShowForm(false); setSimilarMatches([]); }} className="btn-secondary flex-1">İptal</button>
               <button onClick={handleSave} disabled={saving || !form.author || !form.text} className="btn-primary flex-1 disabled:opacity-50">
                 {saving ? '⏳' : editingId ? 'Güncelle' : 'Ekle'}
               </button>
