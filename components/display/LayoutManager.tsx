@@ -349,10 +349,36 @@ export default function LayoutManager({
       <AnimatePresence mode="wait">
         <motion.div
           key={resolvedLayout}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.45 }}
+          initial={
+            resolvedLayout === 'ambient'        ? { opacity: 0, filter: 'blur(20px)' }
+            : resolvedLayout === 'breaking_news' ? { scaleY: 0, originY: 0, opacity: 0 }
+            : resolvedLayout === 'markets'       ? { opacity: 0, y: 28 }
+            : resolvedLayout === 'event_countdown' ? { opacity: 0, scale: 1.06 }
+            : resolvedLayout === 'social_wall'   ? { opacity: 0, scale: 0.97 }
+            : resolvedLayout === 'promo'         ? { opacity: 0, scale: 1.04 }
+            : { opacity: 0, y: 12 }
+          }
+          animate={
+            resolvedLayout === 'ambient'        ? { opacity: 1, filter: 'blur(0px)' }
+            : resolvedLayout === 'breaking_news' ? { scaleY: 1, opacity: 1 }
+            : resolvedLayout === 'markets'       ? { opacity: 1, y: 0 }
+            : resolvedLayout === 'event_countdown' ? { opacity: 1, scale: 1 }
+            : resolvedLayout === 'social_wall'   ? { opacity: 1, scale: 1 }
+            : resolvedLayout === 'promo'         ? { opacity: 1, scale: 1 }
+            : { opacity: 1, y: 0 }
+          }
+          exit={
+            resolvedLayout === 'ambient'        ? { opacity: 0, filter: 'blur(20px)' }
+            : resolvedLayout === 'breaking_news' ? { opacity: 0, y: -20 }
+            : { opacity: 0 }
+          }
+          transition={
+            resolvedLayout === 'ambient'        ? { duration: 1.2, ease: 'easeInOut' }
+            : resolvedLayout === 'breaking_news' ? { duration: 0.4, ease: [0.22, 1, 0.36, 1] }
+            : resolvedLayout === 'markets'       ? { duration: 0.55, ease: 'easeOut' }
+            : resolvedLayout === 'event_countdown' ? { duration: 0.7, ease: [0.22, 1, 0.36, 1] }
+            : { duration: 0.4, ease: [0.4, 0, 0.2, 1] }
+          }
           className="absolute inset-0"
         >
           {resolvedLayout === 'default' && (

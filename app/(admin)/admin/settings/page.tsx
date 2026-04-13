@@ -76,6 +76,34 @@ const SETTING_GROUPS = [
       { key: 'instagram_slide_ms', label: 'Instagram Geçiş Süresi (ms)', type: 'number', placeholder: '8000' },
     ],
   },
+  {
+    title: '🔴 Son Dakika (breaking_news Layout)',
+    keys: [
+      { key: 'breaking_headline', label: 'Manşet', type: 'text', placeholder: 'Son dakika haberi başlığı…' },
+      { key: 'breaking_summary', label: 'Özet', type: 'text', placeholder: 'Haber özeti (1-2 cümle)' },
+      { key: 'breaking_source', label: 'Kaynak', type: 'text', placeholder: 'CNN Türk, TRT vb.' },
+    ],
+  },
+  {
+    title: '⏳ Etkinlik Geri Sayımı (event_countdown Layout)',
+    keys: [
+      { key: 'countdown_title', label: 'Etkinlik Adı', type: 'text', placeholder: 'Yaz Festivali\'ne' },
+      { key: 'countdown_target', label: 'Hedef Tarih/Saat (ISO)', type: 'text', placeholder: '2026-06-25T20:00:00' },
+      { key: 'countdown_bg_url', label: 'Arka Plan Görseli URL', type: 'text', placeholder: 'https://…' },
+    ],
+  },
+  {
+    title: '⚽ Skor Tablosu (split_scoreboard Layout)',
+    keys: [
+      { key: 'scoreboard_json', label: 'Skor JSON', type: 'textarea', placeholder: '[{"home":"GS","away":"FB","score":"2-1","live":true}]' },
+    ],
+  },
+  {
+    title: '🎬 Ekran İçerik Kaynağı',
+    keys: [
+      { key: 'main_content_source', label: 'Ana İçerik Kaynağı', type: 'select', options: ['auto', 'social', 'youtube', 'instagram', 'news'] },
+    ],
+  },
 ];
 
 export default function SettingsPage() {
@@ -166,7 +194,7 @@ export default function SettingsPage() {
               </h2>
               <div className="grid grid-cols-2 gap-4">
                 {group.keys.map((field) => (
-                  <div key={field.key} className={field.type === 'color' ? 'col-span-2 sm:col-span-1' : ''}>
+                  <div key={field.key} className={field.type === 'color' || field.type === 'textarea' ? 'col-span-2' : ''}>
                     <label className="text-xs font-medium text-tv-muted mb-1.5 block">
                       {field.label}
                     </label>
@@ -221,6 +249,13 @@ export default function SettingsPage() {
                       >
                         {field.options?.map((o) => <option key={o} value={o}>{o}</option>)}
                       </select>
+                    ) : field.type === 'textarea' ? (
+                      <textarea
+                        className="input-field font-mono text-xs h-24 resize-none col-span-2"
+                        placeholder={field.placeholder}
+                        value={settings[field.key as keyof AppSettings] ?? ''}
+                        onChange={(e) => update(field.key, e.target.value)}
+                      />
                     ) : (
                       <input
                         type={field.type}

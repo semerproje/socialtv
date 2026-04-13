@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import type { TickerMessage } from '@/types';
 
 interface NewsTickerProps {
@@ -10,12 +10,17 @@ interface NewsTickerProps {
 }
 
 export default function NewsTicker({ messages, primaryColor = '#6366f1', speed = 40 }: NewsTickerProps) {
+  const [paused, setPaused] = useState(false);
+
   const activeMessages = useMemo(() =>
     messages
       .filter((m) => m.isActive)
       .sort((a, b) => b.priority - a.priority),
     [messages],
   );
+
+  const handleMouseEnter = useCallback(() => setPaused(true), []);
+  const handleMouseLeave = useCallback(() => setPaused(false), []);
 
   if (activeMessages.length === 0) {
     return (
@@ -28,15 +33,18 @@ export default function NewsTicker({ messages, primaryColor = '#6366f1', speed =
     );
   }
 
-  const tickerContent = [...activeMessages, ...activeMessages];
+  // Triplicate for seamless loop on short content
+  const tickerContent = [...activeMessages, ...activeMessages, ...activeMessages];
 
   return (
     <div
-      className="relative h-10 flex items-center overflow-hidden"
+      className="relative h-10 flex items-center overflow-hidden cursor-pointer select-none"
       style={{
         background: 'rgba(2, 8, 23, 0.95)',
         borderTop: `1px solid ${primaryColor}25`,
       }}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
     >
       {/* Left fade */}
       <div
@@ -54,24 +62,33 @@ export default function NewsTicker({ messages, primaryColor = '#6366f1', speed =
         }}
       >
         <span className="w-1 h-1 rounded-full bg-current animate-pulse" />
-        CANLI
+        {paused ? '⏸' : 'CANLI'}
       </div>
 
       {/* Scrolling text */}
-      <div className="ticker-wrapper ml-24 flex-1">
+      <div className="ticker-wrapper ml-24 flex-1 overflow-hidden">
         <div
           className="ticker-track"
-          style={{ '--ticker-duration': `${speed}s` } as React.CSSProperties}
+          style={{
+            '--ticker-duration': `${speed}s`,
+            animationPlayState: paused ? 'paused' : 'running',
+          } as React.CSSProperties}
         >
           {tickerContent.map((msg, i) => (
             <span key={`${msg.id}-${i}`} className="inline-flex items-center">
+              {/* Priority indicator for high-priority messages */}
+              {msg.priority >= 8 && (
+                <span className="mr-2 text-[10px] font-bold uppercase tracking-widest" style={{ color: primaryColor }}>
+                  ● 
+                </span>
+              )}
               <span
                 className="text-[13px] font-medium mr-10 whitespace-nowrap tracking-wide"
                 style={{ color: msg.color ?? 'rgba(255,255,255,0.75)' }}
               >
                 {msg.text}
               </span>
-              <span className="mr-10 text-white/15">—</span>
+              <span className="mr-10 text-white/15">·</span>
             </span>
           ))}
         </div>
