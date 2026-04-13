@@ -398,6 +398,14 @@ export type SSEEventType =
   | 'screen_disconnected';
 
 
+export interface WeatherForecastDay {
+  date: string;
+  tempMax: number;
+  tempMin: number;
+  weatherCode: number;
+  description: string;
+}
+
 export interface WeatherData {
   city: string;
   temperature: number;
@@ -407,6 +415,7 @@ export interface WeatherData {
   weatherCode: number;
   description: string;
   icon: string;
+  forecast?: WeatherForecastDay[];
 }
 
 // ─── Settings Types ───────────────────────────────────────────────────────────

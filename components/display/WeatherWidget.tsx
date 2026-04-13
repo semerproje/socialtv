@@ -95,6 +95,23 @@ export default function WeatherWidget({ weather, city, compact = false }: Weathe
           <p className="text-sm font-semibold text-tv-text">{Math.round(weather.windSpeed)} km/s</p>
         </div>
       </div>
+
+      {weather.forecast && weather.forecast.length > 0 && (
+        <div className="flex gap-2 mt-3 pt-3 border-t border-white/[0.06]">
+          {weather.forecast.map((day) => {
+            const dayNames = ['Paz', 'Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt'];
+            const d = new Date(day.date + 'T12:00:00');
+            return (
+              <div key={day.date} className="flex-1 text-center">
+                <p className="text-[10px] text-tv-muted mb-0.5">{dayNames[d.getDay()]}</p>
+                <p className="text-xl leading-none mb-0.5">{getWeatherIcon(day.weatherCode)}</p>
+                <p className="text-xs font-semibold text-tv-text">{day.tempMax}°</p>
+                <p className="text-[10px] text-tv-muted">{day.tempMin}°</p>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </motion.div>
   );
 }

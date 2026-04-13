@@ -30,5 +30,9 @@ env:
     value: sa@socialtv.com
   - variable: ADMIN_ALLOWED_EMAILS
     value: sa@socialtv.com
+  - variable: ADMIN_EDITOR_EMAILS
+    value: ""
+  - variable: ADMIN_VIEWER_EMAILS
+    value: ""
   - variable: NEXT_PUBLIC_APP_URL
     value: https://socialtv--social-web-tv.europe-west4.hosted.app

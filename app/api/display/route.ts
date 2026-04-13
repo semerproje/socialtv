@@ -9,13 +9,26 @@ export const revalidate = 0;
 
 async function fetchWeather(lat: string, lon: string): Promise<WeatherData | undefined> {
   try {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&timezone=auto`;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,weather_code&forecast_days=4&timezone=auto`;
     const res = await fetch(url, { next: { revalidate: 300 } });
     if (!res.ok) return undefined;
 
     const json = await res.json();
     const c = json.current;
     const code = c.weather_code as number;
+
+    // Build 3-day forecast (skip today — index 0)
+    const forecast = (json.daily?.time ?? []).slice(1, 4).map((date: string, i: number) => {
+      const fc = json.daily;
+      const wcode = fc.weather_code[i + 1] as number;
+      return {
+        date,
+        tempMax: Math.round(fc.temperature_2m_max[i + 1]),
+        tempMin: Math.round(fc.temperature_2m_min[i + 1]),
+        weatherCode: wcode,
+        description: getWeatherDescription(wcode),
+      };
+    });
 
     return {
       city: '',
@@ -26,6 +39,7 @@ async function fetchWeather(lat: string, lon: string): Promise<WeatherData | und
       weatherCode: code,
       description: getWeatherDescription(code),
       icon: '',
+      forecast: forecast.length > 0 ? forecast : undefined,
     };
   } catch {
     return undefined;
