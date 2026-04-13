@@ -16,9 +16,15 @@ function getAdminApp(): App {
   }
 
   try {
-    const saPath = path.join(process.cwd(), 'service-account.json');
-    const sa = JSON.parse(fs.readFileSync(saPath, 'utf8'));
-    _app = initializeApp({ credential: cert(sa) });
+    // Prefer JSON env var (production), then fall back to local file (dev)
+    let sa: object | undefined;
+    if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+      sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+    } else {
+      const saPath = path.join(process.cwd(), 'service-account.json');
+      sa = JSON.parse(fs.readFileSync(saPath, 'utf8'));
+    }
+    _app = initializeApp({ credential: cert(sa as Parameters<typeof cert>[0]) });
   } catch {
     _app = initializeApp({
       projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? 'social-web-tv',

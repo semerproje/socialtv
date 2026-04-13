@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
     let aiData: Record<string, unknown> = {};
     let moderationPassed = true;
 
-    if (autoAnalyze && process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== 'sk-your-key-here') {
+    if (autoAnalyze && process.env.GEMINI_API_KEY) {
       try {
         const [modResult, analysisResult] = await Promise.all([
           moderateContent(text),

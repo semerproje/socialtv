@@ -32,11 +32,18 @@ export default function AdminApiAuthBridge() {
         return originalFetch(input, init);
       }
 
-      const token = await auth.currentUser.getIdToken();
-      const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
-      headers.set('Authorization', `Bearer ${token}`);
+      const makeRequest = async (forceRefresh: boolean) => {
+        const token = await auth.currentUser!.getIdToken(forceRefresh);
+        const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+        headers.set('Authorization', `Bearer ${token}`);
+        return originalFetch(input, { ...init, headers });
+      };
 
-      return originalFetch(input, { ...init, headers });
+      const response = await makeRequest(false);
+      if (response.status === 401) {
+        return makeRequest(true);
+      }
+      return response;
     };
 
     return () => {
