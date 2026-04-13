@@ -22,10 +22,6 @@ env:
     value: "245780247646"
   - variable: NEXT_PUBLIC_FIREBASE_APP_ID
     secret: NEXT_PUBLIC_FIREBASE_APP_ID
-  - variable: FIREBASE_SERVICE_ACCOUNT_JSON
-    secret: FIREBASE_SERVICE_ACCOUNT_JSON
-    availability:
-      - RUNTIME
   - variable: GEMINI_API_KEY
     secret: GEMINI_API_KEY
     availability:

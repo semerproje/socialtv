@@ -1,4 +1,4 @@
-import { initializeApp, getApps, cert, App } from 'firebase-admin/app';
+import { initializeApp, getApps, cert, applicationDefault, App } from 'firebase-admin/app';
 import { getAuth, Auth } from 'firebase-admin/auth';
 import { getFirestore, Firestore } from 'firebase-admin/firestore';
 import * as fs from 'fs';
@@ -25,10 +25,19 @@ function getAdminApp(): App {
       sa = JSON.parse(fs.readFileSync(saPath, 'utf8'));
     }
     _app = initializeApp({ credential: cert(sa as Parameters<typeof cert>[0]) });
-  } catch {
-    _app = initializeApp({
-      projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? 'social-web-tv',
-    });
+  } catch (e1) {
+    // No explicit credentials — use Application Default Credentials (works in Firebase App Hosting / Cloud Run)
+    try {
+      _app = initializeApp({
+        credential: applicationDefault(),
+        projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? 'social-web-tv',
+      });
+    } catch (e2) {
+      console.error('[firebase-admin] ADC init failed:', e2);
+      _app = initializeApp({
+        projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? 'social-web-tv',
+      });
+    }
   }
 
   return _app;
