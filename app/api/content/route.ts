@@ -5,6 +5,42 @@ import { enforceRateLimit, requireAdmin } from '@/lib/admin-auth';
 
 export const dynamic = 'force-dynamic';
 
+function normalizeContentText(input: string): string {
+  return input
+    .toLocaleLowerCase('tr-TR')
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/[#@][\p{L}\p{N}_]+/gu, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function levenshtein(a: string, b: string): number {
+  if (a === b) return 0;
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+
+  const prev = new Array<number>(b.length + 1);
+  const curr = new Array<number>(b.length + 1);
+
+  for (let j = 0; j <= b.length; j++) prev[j] = j;
+
+  for (let i = 1; i <= a.length; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(
+        curr[j - 1] + 1,
+        prev[j] + 1,
+        prev[j - 1] + cost,
+      );
+    }
+    for (let j = 0; j <= b.length; j++) prev[j] = curr[j];
+  }
+
+  return prev[b.length];
+}
+
 // GET /api/content
 export async function GET(request: NextRequest) {
   const auth = await requireAdmin(request, 'viewer');
@@ -75,6 +111,40 @@ export async function POST(request: NextRequest) {
       if (dupe) {
         return NextResponse.json(
           { success: false, error: `Bu içerik zaten mevcut (ID: ${externalId})` },
+          { status: 409 },
+        );
+      }
+    }
+
+    // Duplicate detection by text similarity (Levenshtein < 15)
+    const normalizedInput = normalizeContentText(text);
+    if (normalizedInput.length >= 20) {
+      const existing = await db.content.findMany({ where: {} });
+      const similar = existing
+        .map((c) => {
+          const t = typeof c.text === 'string' ? c.text : '';
+          const normalized = normalizeContentText(t);
+          if (!normalized || normalized.length < 20) return null;
+          const distance = levenshtein(normalizedInput, normalized);
+          return {
+            id: String(c.id),
+            author: String(c.author ?? 'Bilinmeyen'),
+            text: t,
+            distance,
+          };
+        })
+        .filter((row): row is { id: string; author: string; text: string; distance: number } => row !== null)
+        .filter((row) => row.distance < 15)
+        .sort((a, b) => a.distance - b.distance)
+        .slice(0, 3);
+
+      if (similar.length > 0) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Benzer içerik tespit edildi (${similar.length} adet). Lütfen mevcut kaydı kullanın veya metni güncelleyin.`,
+            similar,
+          },
           { status: 409 },
         );
       }
