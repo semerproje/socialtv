@@ -402,6 +402,8 @@ export default function MainScreen({ screenId: urlScreenId }: MainScreenProps) {
   const footerText = settings.footer_text ?? '';
   const splashImageUrl = settings.splash_image_url ?? '';
 
+  const logoUrl = settings.logo_url ?? null;
+
   // ── Inject Google Font dynamically ───────────────────────────────────────────
   useEffect(() => {
     const id = 'brand-google-font';
@@ -412,6 +414,15 @@ export default function MainScreen({ screenId: urlScreenId }: MainScreenProps) {
     link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(fontFamily)}:wght@400;500;600;700&display=swap`;
     document.head.appendChild(link);
   }, [fontFamily]);
+
+  // ── Inject CSS brand variables on :root ──────────────────────────────────────
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty('--brand-primary', primaryColor);
+    root.style.setProperty('--brand-secondary', secondaryColor);
+    root.style.setProperty('--brand-accent', accentColor);
+    root.style.setProperty('--brand-font', `'${fontFamily}', sans-serif`);
+  }, [primaryColor, secondaryColor, accentColor, fontFamily]);
 
   // ── Loading screen ───────────────────────────────────────────────────────────
   if (loading) {
@@ -619,6 +630,8 @@ export default function MainScreen({ screenId: urlScreenId }: MainScreenProps) {
           onYouTubeEnded={handleYouTubeEnded}
           primaryColor={primaryColor}
           secondaryColor={secondaryColor}
+          logoUrl={logoUrl}
+          appName={appName}
           mainContentSource={mainContentSource}
         />
       </div>

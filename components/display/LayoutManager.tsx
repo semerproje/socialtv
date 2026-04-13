@@ -54,6 +54,8 @@ interface LayoutManagerProps {
   onYouTubeEnded: () => void;
   primaryColor: string;
   secondaryColor: string;
+  logoUrl?: string | null;
+  appName?: string;
   mainContentSource?: MainContentSource;
 }
 
@@ -76,14 +78,18 @@ function AccentLine({ primaryColor }: { primaryColor: string }) {
   );
 }
 
-function HeaderBar({ primaryColor, weather, logo = true }: { primaryColor: string; weather: DisplayData['weather']; logo?: boolean }) {
+function HeaderBar({ primaryColor, weather, logo = true, logoUrl, appName }: { primaryColor: string; weather: DisplayData['weather']; logo?: boolean; logoUrl?: string | null; appName?: string }) {
   return (
     <header
       className="flex items-center justify-between px-8 py-3.5 flex-shrink-0 relative z-10"
       style={{ background: 'rgba(2,8,23,0.92)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}
     >
       <AccentLine primaryColor={primaryColor} />
-      {logo && <img src="/logo.png" alt="" className="h-8 w-auto object-contain" />}
+      {logo && (
+        logoUrl
+          ? <img src={logoUrl} alt={appName ?? 'Social TV'} className="h-8 w-auto object-contain" />
+          : <img src="/logo.png" alt={appName ?? ''} className="h-8 w-auto object-contain" />
+      )}
       <div className="flex items-center gap-6">
         <WeatherWidget weather={weather} city={weather?.city ?? ''} compact />
         <div className="w-px h-8 bg-white/10" />
@@ -281,6 +287,8 @@ export default function LayoutManager({
   onYouTubeEnded,
   primaryColor,
   secondaryColor,
+  logoUrl,
+  appName: appNameProp,
   mainContentSource = 'auto',
 }: LayoutManagerProps) {
   const settings = data.settings ?? {};
@@ -290,7 +298,8 @@ export default function LayoutManager({
   const tickers = data.tickers ?? [];
   const currentAd = data.currentAd ?? null;
   const weather = data.weather;
-  const appName = settings.app_name ?? 'Social TV';
+  const appName = appNameProp ?? settings.app_name ?? 'Social TV';
+  const logoUrlFinal = logoUrl ?? settings.logo_url ?? null;
   const qrUrl = settings.qr_url ?? '';
   const currentYT = youtubeQueue[0] ?? null;
   const igSlideDuration = Math.max(
@@ -357,6 +366,8 @@ export default function LayoutManager({
               news={data.news}
               mainContentSource={mainContentSource}
               onYouTubeEnded={onYouTubeEnded}
+              logoUrl={logoUrlFinal}
+              appName={appName}
               {...common}
             />
           )}
@@ -493,12 +504,15 @@ export default function LayoutManager({
 function DefaultLayout({
   highlight, highlights, feedContent, news, youtubeVideo, instagramPosts, mainContentSource = 'auto',
   tickers, weather, primaryColor, secondaryColor, igSlideDuration, qrUrl, onYouTubeEnded,
+  logoUrl, appName,
 }: CommonProps & {
   highlight: any; highlights: any[]; feedContent: any[]; news?: NewsItem[]; qrUrl: string;
   youtubeVideo?: { videoId: string; title?: string } | null;
   instagramPosts?: InstagramPostData[];
   mainContentSource?: MainContentSource;
   onYouTubeEnded?: () => void;
+  logoUrl?: string | null;
+  appName?: string;
 }) {
   // Determine main zone content
   const effectiveSource: MainContentSource = (() => {
@@ -511,7 +525,7 @@ function DefaultLayout({
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <HeaderBar primaryColor={primaryColor} weather={weather} />
+      <HeaderBar primaryColor={primaryColor} weather={weather} logoUrl={logoUrl} appName={appName} />
       <div className="flex flex-1 min-h-0 gap-3 p-3 overflow-hidden">
         <div className="flex-1 min-w-0 min-h-0 overflow-hidden relative">
           {effectiveSource === 'youtube' && youtubeVideo && (
