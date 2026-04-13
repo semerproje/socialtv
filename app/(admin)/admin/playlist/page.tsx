@@ -617,8 +617,14 @@ export default function PlaylistPage() {
   const fetchPlaylists = useCallback(async () => {
     try {
       const res = await fetch('/api/playlists?active=0');
-      if (res.ok) { const d = await res.json(); setPlaylists(d.data ?? []); }
-    } catch { toast.error('Playlist listesi alınamadı'); }
+      if (res.ok) {
+        const d = await res.json();
+        if (!d.success) { toast.error('API hatası: ' + (d.error ?? 'Bilinmeyen hata')); return; }
+        setPlaylists(d.data ?? []);
+      } else {
+        toast.error(`HTTP ${res.status}: Playlist listesi alınamadı`);
+      }
+    } catch (err) { toast.error('Playlist listesi alınamadı: ' + (err instanceof Error ? err.message : 'Ağ hatası')); }
     finally { setLoading(false); }
   }, []);
 

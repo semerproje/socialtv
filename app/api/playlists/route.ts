@@ -11,9 +11,11 @@ export async function GET(req: NextRequest) {
 
   try {
     const withItems = req.nextUrl.searchParams.get('withItems') === '1';
-    const activeOnly = req.nextUrl.searchParams.get('active') !== '0';
+    const includeInactive = req.nextUrl.searchParams.get('active') === '0';
 
-    const playlists = await db.playlist.findMany(activeOnly ? { where: { isActive: true } } : undefined);
+    const playlists = await db.playlist.findMany(
+      includeInactive ? undefined : { where: { isActive: true } }
+    );
 
     if (withItems) {
       const enriched = await Promise.all(
