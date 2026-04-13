@@ -971,6 +971,13 @@ export default function SchedulePage() {
       toast.error('Çözüm planı üretilemedi');
       return;
     }
+    await applyConflictPlan(conflict, plan);
+  };
+
+  const applyConflictPlan = async (
+    conflict: { a: ScheduleEvent; b: ScheduleEvent },
+    plan: { moveTarget: ScheduleEvent; nextStart: Date; nextEnd: Date },
+  ) => {
     const { moveTarget, nextStart, nextEnd } = plan;
     setResolvingConflictId(moveTarget.id);
 
@@ -1005,6 +1012,22 @@ export default function SchedulePage() {
     } finally {
       setResolvingConflictId(null);
     }
+  };
+
+  const applyPreviewPlan = async (conflict: { a: ScheduleEvent; b: ScheduleEvent }) => {
+    const key = `${conflict.a.id}-${conflict.b.id}`;
+    const preview = previewPlans[key];
+    if (!preview) return;
+    const moveTarget = conflict.a.id === preview.eventId ? conflict.a : conflict.b.id === preview.eventId ? conflict.b : null;
+    if (!moveTarget) {
+      toast.error('Önizleme geçersiz, lütfen tekrar oluşturun');
+      return;
+    }
+    await applyConflictPlan(conflict, {
+      moveTarget,
+      nextStart: new Date(preview.nextStartAt),
+      nextEnd: new Date(preview.nextEndAt),
+    });
   };
 
   const getConflictMovePlan = (conflict: { a: ScheduleEvent; b: ScheduleEvent }) => {
@@ -1186,6 +1209,15 @@ export default function SchedulePage() {
                           >
                             {previewPlans[`${row.conflict.a.id}-${row.conflict.b.id}`] ? 'Önizlemeyi Kapat' : 'Önizle'}
                           </button>
+                          {previewPlans[`${row.conflict.a.id}-${row.conflict.b.id}`] && (
+                            <button
+                              onClick={() => applyPreviewPlan(row.conflict)}
+                              disabled={resolvingConflictId === row.conflict.a.id || resolvingConflictId === row.conflict.b.id}
+                              className="text-[10px] px-2 py-1 rounded-lg border border-indigo-500/40 bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25 transition-all disabled:opacity-40"
+                            >
+                              Uygula
+                            </button>
+                          )}
                           <button
                             onClick={() => autoResolveConflict(row.conflict)}
                             disabled={resolvingConflictId === row.conflict.a.id || resolvingConflictId === row.conflict.b.id}
