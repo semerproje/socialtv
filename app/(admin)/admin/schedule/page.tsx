@@ -656,6 +656,14 @@ export default function SchedulePage() {
   const [showConflictDetails, setShowConflictDetails] = useState(false);
   const [conflictAiLoading, setConflictAiLoading] = useState(false);
   const [conflictAiSuggestions, setConflictAiSuggestions] = useState<string | null>(null);
+  const [lastResolvedMove, setLastResolvedMove] = useState<{
+    eventId: string;
+    title: string;
+    prevStartAt: string;
+    prevEndAt: string | null;
+    nextStartAt: string;
+  } | null>(null);
+  const [resolvingConflictId, setResolvingConflictId] = useState<string | null>(null);
   const [showPrimeTime, setShowPrimeTime] = useState(false);
   const [primeSlots, setPrimeSlots] = useState<PrimeTimeSlot[]>([]);
   const [templates, setTemplates] = useState<WeeklyTemplate[]>([]);
@@ -965,6 +973,7 @@ export default function SchedulePage() {
     const anchorEnd = anchor.endAt ? new Date(anchor.endAt) : new Date(new Date(anchor.startAt).getTime() + 60 * 60 * 1000);
     const nextStart = new Date(anchorEnd.getTime() + 15 * 60 * 1000);
     const nextEnd = new Date(nextStart.getTime() + durationMs);
+    setResolvingConflictId(moveTarget.id);
 
     try {
       const res = await fetch(`/api/schedule/${moveTarget.id}`, {
@@ -977,10 +986,39 @@ export default function SchedulePage() {
       });
       if (!res.ok) throw new Error('Çakışma çözümü kaydedilemedi');
       toast.success(`"${moveTarget.title}" ${String(nextStart.getHours()).padStart(2, '0')}:${String(nextStart.getMinutes()).padStart(2, '0')} saatine kaydırıldı`);
+      setLastResolvedMove({
+        eventId: moveTarget.id,
+        title: moveTarget.title,
+        prevStartAt: moveTarget.startAt,
+        prevEndAt: moveTarget.endAt ?? null,
+        nextStartAt: nextStart.toISOString(),
+      });
       setConflictAiSuggestions(null);
       await fetchAll();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Çakışma çözülemedi');
+    } finally {
+      setResolvingConflictId(null);
+    }
+  };
+
+  const undoLastResolve = async () => {
+    if (!lastResolvedMove) return;
+    try {
+      const res = await fetch(`/api/schedule/${lastResolvedMove.eventId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          startAt: lastResolvedMove.prevStartAt,
+          endAt: lastResolvedMove.prevEndAt,
+        }),
+      });
+      if (!res.ok) throw new Error('Geri alma başarısız');
+      toast.success(`"${lastResolvedMove.title}" eski saatine alındı`);
+      setLastResolvedMove(null);
+      await fetchAll();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Geri alma başarısız');
     }
   };
 
@@ -1070,6 +1108,19 @@ export default function SchedulePage() {
                 <p className="text-xs text-emerald-300">Çakışma yok, takvim temiz.</p>
               ) : (
                 <div className="space-y-2">
+                  {lastResolvedMove && (
+                    <div className="rounded-lg border border-emerald-500/35 bg-emerald-500/12 px-2.5 py-2 flex items-center justify-between gap-2">
+                      <p className="text-[11px] text-emerald-200/90">
+                        Son çözüm: {lastResolvedMove.title} {new Date(lastResolvedMove.nextStartAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                      <button
+                        onClick={undoLastResolve}
+                        className="text-[10px] px-2 py-1 rounded-lg border border-emerald-400/50 bg-emerald-500/20 text-emerald-200 hover:bg-emerald-500/30 transition-all flex-shrink-0"
+                      >
+                        Geri Al
+                      </button>
+                    </div>
+                  )}
                   {conflictRows.map((row) => (
                     <div key={row.key} className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-2">
                       <div className="flex items-start justify-between gap-3">
@@ -1079,9 +1130,10 @@ export default function SchedulePage() {
                         </div>
                         <button
                           onClick={() => autoResolveConflict(row.conflict)}
-                          className="text-[10px] px-2 py-1 rounded-lg border border-emerald-500/40 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 transition-all flex-shrink-0"
+                          disabled={resolvingConflictId === row.conflict.a.id || resolvingConflictId === row.conflict.b.id}
+                          className="text-[10px] px-2 py-1 rounded-lg border border-emerald-500/40 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 transition-all flex-shrink-0 disabled:opacity-40"
                         >
-                          Hızlı Çöz
+                          {resolvingConflictId === row.conflict.a.id || resolvingConflictId === row.conflict.b.id ? '⏳ Çözülüyor' : 'Hızlı Çöz'}
                         </button>
                       </div>
                     </div>
