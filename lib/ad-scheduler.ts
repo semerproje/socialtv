@@ -2,7 +2,7 @@ import { db } from '@/lib/db';
 import { adminDb } from '@/lib/firebase-admin';
 import { isAdActiveNow } from '@/lib/utils';
 import type { Advertisement } from '@/types';
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
 type AdLike = Record<string, unknown>;
 
@@ -22,6 +22,9 @@ interface NextAdOptions {
 
 const serverFreqTracker = new Map<string, FrequencyState>();
 const FREQ_COLLECTION = 'ad_frequency_state';
+const FREQ_RETENTION_DAYS = 7;
+const CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
+let lastCleanupAt = 0;
 
 function buildScope(adId: string, screenId?: string): string {
   return screenId ? `${adId}:${screenId}` : `${adId}:global`;
@@ -29,6 +32,28 @@ function buildScope(adId: string, screenId?: string): string {
 
 function buildFreqDocId(adId: string, scope: string): string {
   return `${adId}__${scope.replace(/[^a-zA-Z0-9:_-]/g, '_')}`;
+}
+
+async function maybeCleanupFrequencyState(): Promise<void> {
+  const nowMs = Date.now();
+  if (nowMs - lastCleanupAt < CLEANUP_INTERVAL_MS) return;
+  lastCleanupAt = nowMs;
+
+  try {
+    const cutoff = Timestamp.fromDate(new Date(nowMs - FREQ_RETENTION_DAYS * 24 * 60 * 60 * 1000));
+    const snap = await adminDb
+      .collection(FREQ_COLLECTION)
+      .where('expiresAt', '<=', cutoff)
+      .limit(200)
+      .get();
+
+    if (snap.empty) return;
+    const batch = adminDb.batch();
+    snap.docs.forEach((doc) => batch.delete(doc.ref));
+    await batch.commit();
+  } catch {
+    // Cleanup is best-effort and should never block ad serving.
+  }
 }
 
 function getHourBucket(now: Date): string {
@@ -153,6 +178,7 @@ async function markAdServedPersistent(ad: AdLike, screenId?: string): Promise<vo
   const nowMs = now.getTime();
   const hourBucket = getHourBucket(now);
   const dayBucket = getDayBucket(now);
+  const expiresAt = new Date(nowMs + FREQ_RETENTION_DAYS * 24 * 60 * 60 * 1000);
 
   try {
     await adminDb.runTransaction(async (tx) => {
@@ -171,6 +197,7 @@ async function markAdServedPersistent(ad: AdLike, screenId?: string): Promise<vo
         hourCount: prevHourBucket === hourBucket ? prevHourCount + 1 : 1,
         dayCount: prevDayBucket === dayBucket ? prevDayCount + 1 : 1,
         lastShownAt: nowMs,
+        expiresAt,
         updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true });
     });
@@ -185,6 +212,7 @@ async function markAdServedPersistent(ad: AdLike, screenId?: string): Promise<vo
  * Uses a weighted round-robin approach: higher priority ads play more often.
  */
 export async function getNextAd(options?: string | NextAdOptions): Promise<Advertisement | null> {
+  void maybeCleanupFrequencyState();
   const opts: NextAdOptions = typeof options === 'string' ? { excludeId: options } : (options ?? {});
   const ads = await db.advertisement.findMany({
     where: { isActive: true },
