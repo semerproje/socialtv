@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
+import { QRCodeSVG } from 'qrcode.react';
 import { db } from '@/lib/firebase';
 import { doc, setDoc, serverTimestamp, collection, onSnapshot } from 'firebase/firestore';
 
@@ -191,6 +192,7 @@ function ScreenCard({
   onDelete,
   onEdit,
   onCopyUrl,
+  onShowQr,
 }: {
   screen: ScreenData;
   selected: boolean;
@@ -200,6 +202,7 @@ function ScreenCard({
   onDelete: () => void;
   onEdit: () => void;
   onCopyUrl: () => void;
+  onShowQr: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [ytUrl, setYtUrl] = useState('');
@@ -410,6 +413,9 @@ function ScreenCard({
 
               {/* Footer actions */}
               <div className="flex gap-2 pt-1">
+                <button onClick={onShowQr} className="btn-secondary text-xs py-1.5 px-3 justify-center" title="QR Kod Göster">
+                  📱
+                </button>
                 <button onClick={onCopyUrl} className="btn-secondary text-xs py-1.5 flex-1 justify-center">
                   📋 URL Kopyala
                 </button>
@@ -467,6 +473,7 @@ export default function ScreensPage() {
   // Modals
   const [showAddModal, setShowAddModal]   = useState(false);
   const [editingScreen, setEditingScreen] = useState<ScreenData | null>(null);
+  const [qrScreen, setQrScreen]           = useState<ScreenData | null>(null);
 
   // Broadcast inputs
   const [broadcastYt, setBroadcastYt]   = useState('');
@@ -869,6 +876,7 @@ export default function ScreensPage() {
                   onDelete={() => deleteScreen(screen.id)}
                   onEdit={() => openEditModal(screen)}
                   onCopyUrl={() => copyUrl(`/screen?id=${screen.id}`)}
+                  onShowQr={() => setQrScreen(screen)}
                 />
               ))}
             </div>
@@ -1191,6 +1199,42 @@ export default function ScreensPage() {
             ))}
           </div>
 
+          {/* QR codes for all actual screens */}
+          {screens.length > 0 && (
+            <div className="admin-card space-y-4">
+              <h2 className="font-semibold text-tv-text text-base">📱 Ekran QR Kodları</h2>
+              <p className="text-xs text-tv-muted">Her ekranın URL'sini QR kod ile TV tarayıcısına kolayca yükleyin.</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                {screens.map((s) => {
+                  const url = typeof window !== 'undefined'
+                    ? `${window.location.origin}/screen?id=${s.id}`
+                    : `/screen?id=${s.id}`;
+                  return (
+                    <button
+                      key={s.id}
+                      onClick={() => setQrScreen(s)}
+                      className="flex flex-col items-center gap-2 p-4 rounded-xl bg-white/3 border border-white/8 hover:border-indigo-500/40 hover:bg-indigo-500/5 transition-all group"
+                    >
+                      <div className="bg-white p-2 rounded-xl group-hover:shadow-lg group-hover:shadow-indigo-500/20 transition-all">
+                        <QRCodeSVG value={url} size={80} bgColor="#ffffff" fgColor="#030712" level="M" />
+                      </div>
+                      <div className="text-center">
+                        <p className="text-xs font-semibold text-tv-text truncate max-w-[100px]">{s.name}</p>
+                        {s.location && <p className="text-[10px] text-tv-muted truncate max-w-[100px]">{s.location}</p>}
+                        <div className="flex items-center justify-center gap-1 mt-1">
+                          <span className={`w-1.5 h-1.5 rounded-full ${s.isOnline ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+                          <span className={`text-[10px] ${s.isOnline ? 'text-emerald-400' : 'text-slate-500'}`}>
+                            {s.isOnline ? 'Çevrimiçi' : 'Çevrimdışı'}
+                          </span>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           <div className="space-y-4">
             <div className="admin-card space-y-4">
               <h2 className="font-semibold text-tv-text text-base">Kurulum Adımları</h2>
@@ -1426,6 +1470,81 @@ start chrome --kiosk ^
             </motion.div>
           </motion.div>
         )}
+      </AnimatePresence>
+
+      {/* ════════════════ QR CODE MODAL ════════════════ */}
+      <AnimatePresence>
+        {qrScreen && (() => {
+          const screenUrl = typeof window !== 'undefined'
+            ? `${window.location.origin}/screen?id=${qrScreen.id}`
+            : `/screen?id=${qrScreen.id}`;
+          return (
+            <motion.div
+              key="qr-modal"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/70 backdrop-blur-md z-50 flex items-center justify-center p-4"
+              onClick={(e) => e.target === e.currentTarget && setQrScreen(null)}
+            >
+              <motion.div
+                initial={{ scale: 0.88, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.88, y: 20 }}
+                transition={{ type: 'spring', stiffness: 320, damping: 28 }}
+                className="admin-card w-full max-w-sm space-y-5"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-base font-bold text-tv-text">{qrScreen.name}</h3>
+                    {qrScreen.location && (
+                      <p className="text-xs text-tv-muted mt-0.5">{qrScreen.location}</p>
+                    )}
+                  </div>
+                  <button onClick={() => setQrScreen(null)} className="text-tv-muted hover:text-tv-text text-xl leading-none">✕</button>
+                </div>
+
+                {/* QR Code */}
+                <div className="flex justify-center">
+                  <div className="bg-white p-4 rounded-2xl shadow-xl shadow-black/40">
+                    <QRCodeSVG
+                      value={screenUrl}
+                      size={200}
+                      bgColor="#ffffff"
+                      fgColor="#030712"
+                      level="M"
+                    />
+                  </div>
+                </div>
+
+                <p className="text-xs text-tv-muted text-center">TV tarayıcısını bu URL'ye yönlendirin ya da QR kodu taratın</p>
+
+                <div className="bg-black/30 px-3 py-2.5 rounded-xl border border-white/8">
+                  <p className="font-mono text-[11px] text-indigo-300 break-all leading-relaxed">{screenUrl}</p>
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => { navigator.clipboard.writeText(screenUrl); toast.success('URL kopyalandı!'); }}
+                    className="btn-secondary flex-1 justify-center text-sm"
+                  >
+                    📋 URL Kopyala
+                  </button>
+                  <a
+                    href={screenUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-secondary flex-1 justify-center text-sm"
+                  >
+                    ↗ Aç
+                  </a>
+                </div>
+
+                <button onClick={() => setQrScreen(null)} className="btn-secondary w-full justify-center text-sm">Kapat</button>
+              </motion.div>
+            </motion.div>
+          );
+        })()}
       </AnimatePresence>
 
     </div>
