@@ -60,6 +60,8 @@ export default function AdsPage() {
   const [maxPerHour, setMaxPerHour] = useState<number | ''>('');
   const [maxPerDay, setMaxPerDay] = useState<number | ''>('');
   const [cooldownSeconds, setCooldownSeconds] = useState<number | ''>('');
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
 
   const fetchAds = useCallback(async () => {
     try {
@@ -244,6 +246,40 @@ export default function AdsPage() {
     toast.success(`${selectedIds.size} reklam silindi`);
     setSelectedIds(new Set());
     fetchAds();
+  };
+
+  const applyReorder = async (sourceId: string, targetId: string) => {
+    if (sourceId === targetId) return;
+    const sourceIndex = ads.findIndex((a) => a.id === sourceId);
+    const targetIndex = ads.findIndex((a) => a.id === targetId);
+    if (sourceIndex === -1 || targetIndex === -1) return;
+
+    const reordered = [...ads];
+    const [moved] = reordered.splice(sourceIndex, 1);
+    reordered.splice(targetIndex, 0, moved);
+
+    // Keep priorities in 1..10 range while preserving visual order.
+    const total = Math.max(reordered.length - 1, 1);
+    const withPriority = reordered.map((ad, idx) => ({
+      ...ad,
+      priority: Math.max(1, 10 - Math.round((idx / total) * 9)),
+    }));
+
+    setAds(withPriority);
+    try {
+      await Promise.all(withPriority.map((ad) =>
+        fetch(`/api/ads/${ad.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ priority: ad.priority }),
+        }),
+      ));
+      toast.success('Öncelik sırası güncellendi');
+      fetchAds();
+    } catch {
+      toast.error('Sıralama kaydedilemedi');
+      fetchAds();
+    }
   };
 
   const DAY_NAMES = ['Paz', 'Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt'];
@@ -647,9 +683,33 @@ export default function AdsPage() {
           {ads.map((ad) => (
             <div
               key={ad.id}
+              draggable
+              onDragStart={(e) => {
+                setDraggingId(ad.id);
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', ad.id);
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                if (draggingId && draggingId !== ad.id) setDropTargetId(ad.id);
+              }}
+              onDragLeave={() => setDropTargetId((prev) => (prev === ad.id ? null : prev))}
+              onDrop={(e) => {
+                e.preventDefault();
+                const sourceId = e.dataTransfer.getData('text/plain') || draggingId;
+                if (sourceId) void applyReorder(sourceId, ad.id);
+                setDraggingId(null);
+                setDropTargetId(null);
+              }}
+              onDragEnd={() => {
+                setDraggingId(null);
+                setDropTargetId(null);
+              }}
               className={cn(
                 'admin-card relative overflow-hidden hover:border-white/20 transition-colors',
                 selectedIds.has(ad.id) && 'border-indigo-500/40 bg-indigo-500/[0.05]',
+                draggingId === ad.id && 'opacity-60 scale-[0.98]',
+                dropTargetId === ad.id && 'ring-2 ring-indigo-500/40',
               )}
             >
               {/* Priority stripe */}
@@ -662,6 +722,13 @@ export default function AdsPage() {
                 {/* Header */}
                 <div className="flex items-start justify-between gap-3 mb-3">
                   <div className="flex items-start gap-2 flex-1 min-w-0">
+                    <button
+                      type="button"
+                      className="mt-0.5 text-tv-muted/60 hover:text-tv-text cursor-grab active:cursor-grabbing"
+                      title="Sürükleyip bırak: öncelik sırası"
+                    >
+                      ⋮⋮
+                    </button>
                     <input
                       type="checkbox"
                       checked={selectedIds.has(ad.id)}
