@@ -664,6 +664,7 @@ export default function SchedulePage() {
     nextStartAt: string;
   } | null>(null);
   const [resolvingConflictId, setResolvingConflictId] = useState<string | null>(null);
+  const [bulkResolvingAll, setBulkResolvingAll] = useState(false);
   const [previewPlans, setPreviewPlans] = useState<Record<string, {
     eventId: string;
     title: string;
@@ -974,6 +975,42 @@ export default function SchedulePage() {
     await applyConflictPlan(conflict, plan);
   };
 
+  const resolveAllConflicts = async () => {
+    if (conflicts.length === 0 || bulkResolvingAll) return;
+    setBulkResolvingAll(true);
+    let resolved = 0;
+    let failed = 0;
+    const snapshot = [...conflicts];
+    for (const conflict of snapshot) {
+      const plan = getConflictMovePlan(conflict);
+      if (!plan) { failed++; continue; }
+      try {
+        const res = await fetch(`/api/schedule/${plan.moveTarget.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            startAt: plan.nextStart.toISOString(),
+            endAt: plan.nextEnd.toISOString(),
+          }),
+        });
+        if (res.ok) resolved++;
+        else failed++;
+      } catch {
+        failed++;
+      }
+    }
+    await fetchAll();
+    setConflictAiSuggestions(null);
+    setPreviewPlans({});
+    setLastResolvedMove(null);
+    setBulkResolvingAll(false);
+    if (failed === 0) {
+      toast.success(`${resolved} çakışma çözüldü`);
+    } else {
+      toast(`${resolved} çözüldü, ${failed} başarısız`, { icon: '⚠️' });
+    }
+  };
+
   const applyConflictPlan = async (
     conflict: { a: ScheduleEvent; b: ScheduleEvent },
     plan: { moveTarget: ScheduleEvent; nextStart: Date; nextEnd: Date },
@@ -1163,13 +1200,24 @@ export default function SchedulePage() {
             <div className="mt-3 rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2.5 max-w-[560px]">
               <div className="flex items-center justify-between gap-2 mb-2">
                 <p className="text-[11px] uppercase tracking-[0.12em] text-amber-400/80 font-semibold">Çakışma Detayı</p>
-                <button
-                  onClick={fetchConflictSuggestions}
-                  disabled={conflictAiLoading}
-                  className="text-[10px] px-2 py-1 rounded-lg border border-indigo-500/40 bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25 transition-all disabled:opacity-40"
-                >
-                  {conflictAiLoading ? '⏳ AI analiz…' : '🤖 AI Çözüm Öner'}
-                </button>
+                <div className="flex items-center gap-1.5">
+                  {conflicts.length > 1 && (
+                    <button
+                      onClick={resolveAllConflicts}
+                      disabled={bulkResolvingAll || !!resolvingConflictId}
+                      className="text-[10px] px-2 py-1 rounded-lg border border-emerald-500/40 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 transition-all disabled:opacity-40"
+                    >
+                      {bulkResolvingAll ? '⏳ Çözülüyor…' : `Tümünü Çöz (${conflicts.length})`}
+                    </button>
+                  )}
+                  <button
+                    onClick={fetchConflictSuggestions}
+                    disabled={conflictAiLoading || bulkResolvingAll}
+                    className="text-[10px] px-2 py-1 rounded-lg border border-indigo-500/40 bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25 transition-all disabled:opacity-40"
+                  >
+                    {conflictAiLoading ? '⏳ AI analiz…' : '🤖 AI Çözüm Öner'}
+                  </button>
+                </div>
               </div>
               {conflictRows.length === 0 ? (
                 <p className="text-xs text-emerald-300">Çakışma yok, takvim temiz.</p>
@@ -1182,7 +1230,8 @@ export default function SchedulePage() {
                       </p>
                       <button
                         onClick={undoLastResolve}
-                        className="text-[10px] px-2 py-1 rounded-lg border border-emerald-400/50 bg-emerald-500/20 text-emerald-200 hover:bg-emerald-500/30 transition-all flex-shrink-0"
+                        disabled={bulkResolvingAll}
+                        className="text-[10px] px-2 py-1 rounded-lg border border-emerald-400/50 bg-emerald-500/20 text-emerald-200 hover:bg-emerald-500/30 transition-all flex-shrink-0 disabled:opacity-40"
                       >
                         Geri Al
                       </button>
@@ -1205,14 +1254,15 @@ export default function SchedulePage() {
                         <div className="flex items-center gap-1.5 flex-shrink-0">
                           <button
                             onClick={() => toggleConflictPreview(row.conflict)}
-                            className="text-[10px] px-2 py-1 rounded-lg border border-sky-500/40 bg-sky-500/15 text-sky-300 hover:bg-sky-500/25 transition-all"
+                            disabled={bulkResolvingAll}
+                            className="text-[10px] px-2 py-1 rounded-lg border border-sky-500/40 bg-sky-500/15 text-sky-300 hover:bg-sky-500/25 transition-all disabled:opacity-40"
                           >
                             {previewPlans[`${row.conflict.a.id}-${row.conflict.b.id}`] ? 'Önizlemeyi Kapat' : 'Önizle'}
                           </button>
                           {previewPlans[`${row.conflict.a.id}-${row.conflict.b.id}`] && (
                             <button
                               onClick={() => applyPreviewPlan(row.conflict)}
-                              disabled={resolvingConflictId === row.conflict.a.id || resolvingConflictId === row.conflict.b.id}
+                              disabled={bulkResolvingAll || resolvingConflictId === row.conflict.a.id || resolvingConflictId === row.conflict.b.id}
                               className="text-[10px] px-2 py-1 rounded-lg border border-indigo-500/40 bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25 transition-all disabled:opacity-40"
                             >
                               Uygula
@@ -1220,7 +1270,7 @@ export default function SchedulePage() {
                           )}
                           <button
                             onClick={() => autoResolveConflict(row.conflict)}
-                            disabled={resolvingConflictId === row.conflict.a.id || resolvingConflictId === row.conflict.b.id}
+                            disabled={bulkResolvingAll || resolvingConflictId === row.conflict.a.id || resolvingConflictId === row.conflict.b.id}
                             className="text-[10px] px-2 py-1 rounded-lg border border-emerald-500/40 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 transition-all disabled:opacity-40"
                           >
                             {resolvingConflictId === row.conflict.a.id || resolvingConflictId === row.conflict.b.id ? '⏳ Çözülüyor' : 'Hızlı Çöz'}
