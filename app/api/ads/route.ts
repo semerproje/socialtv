@@ -43,6 +43,7 @@ export async function POST(request: NextRequest) {
       backgroundColor, textColor, accentColor,
       aiGenerated = false, aiPrompt,
       targetImpressions,
+      maxPerHour, maxPerDay, cooldownSeconds,
     } = body;
 
     if (!title || !type || !content) {
@@ -64,6 +65,9 @@ export async function POST(request: NextRequest) {
         backgroundColor, textColor, accentColor,
         aiGenerated, aiPrompt,
         ...(targetImpressions ? { targetImpressions: Number(targetImpressions) } : {}),
+        ...(maxPerHour != null ? { maxPerHour: Number(maxPerHour) } : {}),
+        ...(maxPerDay != null ? { maxPerDay: Number(maxPerDay) } : {}),
+        ...(cooldownSeconds != null ? { cooldownSeconds: Number(cooldownSeconds) } : {}),
       },
     });
 

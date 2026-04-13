@@ -35,6 +35,7 @@ export async function PUT(request: NextRequest, context: { params: Promise<{ id:
       startDate, endDate, scheduleJson,
       backgroundColor, textColor, accentColor,
       targetImpressions,
+      maxPerHour, maxPerDay, cooldownSeconds,
     } = body;
 
     const ad = await db.advertisement.update(id, {
@@ -53,6 +54,9 @@ export async function PUT(request: NextRequest, context: { params: Promise<{ id:
         ...(textColor !== undefined && { textColor }),
         ...(accentColor !== undefined && { accentColor }),
         ...(targetImpressions !== undefined && { targetImpressions: targetImpressions ? Number(targetImpressions) : null }),
+        ...(maxPerHour !== undefined && { maxPerHour: maxPerHour ? Number(maxPerHour) : null }),
+        ...(maxPerDay !== undefined && { maxPerDay: maxPerDay ? Number(maxPerDay) : null }),
+        ...(cooldownSeconds !== undefined && { cooldownSeconds: cooldownSeconds ? Number(cooldownSeconds) : null }),
     });
 
     return NextResponse.json({ success: true, data: ad });

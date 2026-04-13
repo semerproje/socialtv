@@ -646,6 +646,7 @@ export default function SchedulePage() {
   const [showForm, setShowForm] = useState(false);
   const [showAIWeekly, setShowAIWeekly] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
+  const [showConflictDetails, setShowConflictDetails] = useState(false);
   const [showPrimeTime, setShowPrimeTime] = useState(false);
   const [primeSlots, setPrimeSlots] = useState<PrimeTimeSlot[]>([]);
   const [templates, setTemplates] = useState<WeeklyTemplate[]>([]);
@@ -927,6 +928,18 @@ export default function SchedulePage() {
     .filter((event) => event.type === 'live_tv' && new Date(event.startAt).getTime() >= Date.now())
     .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())[0];
   const nextLiveChannel = nextLiveEvent?.sourceRef ? channels.find((channel) => channel.id === nextLiveEvent.sourceRef) : null;
+  const conflictRows = conflicts.slice(0, 6).map((c, i) => {
+    const aStart = new Date(c.a.startAt);
+    const bStart = new Date(c.b.startAt);
+    const aScreen = c.a.screenId ? (screenMap[c.a.screenId]?.name ?? 'Bilinmeyen Ekran') : 'Tüm Ekranlar';
+    const bScreen = c.b.screenId ? (screenMap[c.b.screenId]?.name ?? 'Bilinmeyen Ekran') : 'Tüm Ekranlar';
+    return {
+      key: `${c.a.id}-${c.b.id}-${i}`,
+      left: `${c.a.title} (${String(aStart.getHours()).padStart(2, '0')}:${String(aStart.getMinutes()).padStart(2, '0')})`,
+      right: `${c.b.title} (${String(bStart.getHours()).padStart(2, '0')}:${String(bStart.getMinutes()).padStart(2, '0')})`,
+      scope: aScreen === bScreen ? aScreen : `${aScreen} ↔ ${bScreen}`,
+    };
+  });
 
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-[#030712]">
@@ -942,13 +955,36 @@ export default function SchedulePage() {
           <p className="text-white/35 text-xs mt-0.5">{events.length} etkinlik planlandı</p>
           <div className="flex flex-wrap gap-2 mt-3 text-[11px]">
             <span className="badge badge-muted">{liveTvCount} canlı TV yayını</span>
-            <span className={cn('badge', conflicts.length > 0 ? 'badge-warning' : 'badge-success')}>
+            <button
+              onClick={() => setShowConflictDetails((v) => !v)}
+              className={cn('badge transition-all', conflicts.length > 0 ? 'badge-warning hover:brightness-110' : 'badge-success hover:brightness-110')}
+            >
               {conflicts.length} çakışma
-            </span>
+            </button>
             <span className={cn('badge', criticalCount > 0 ? 'badge-danger' : 'badge-muted')}>
               {criticalCount} yüksek öncelik
             </span>
           </div>
+          {showConflictDetails && (
+            <div className="mt-3 rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2.5 max-w-[560px]">
+              <p className="text-[11px] uppercase tracking-[0.12em] text-amber-400/80 font-semibold mb-2">Çakışma Detayı</p>
+              {conflictRows.length === 0 ? (
+                <p className="text-xs text-emerald-300">Çakışma yok, takvim temiz.</p>
+              ) : (
+                <div className="space-y-2">
+                  {conflictRows.map((row) => (
+                    <div key={row.key} className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-2">
+                      <p className="text-xs text-white/85">{row.left} <span className="text-white/25">↔</span> {row.right}</p>
+                      <p className="text-[10px] text-white/40 mt-0.5">Kapsam: {row.scope}</p>
+                    </div>
+                  ))}
+                  {conflicts.length > conflictRows.length && (
+                    <p className="text-[10px] text-white/35">+{conflicts.length - conflictRows.length} çakışma daha</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-3">
           {nextLiveEvent && (

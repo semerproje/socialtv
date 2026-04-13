@@ -12,6 +12,43 @@ import { doc, onSnapshot, Timestamp } from 'firebase/firestore';
 const REFRESH_INTERVAL = parseInt(process.env.NEXT_PUBLIC_REFRESH_INTERVAL ?? '30000', 10);
 const AD_INTERVAL = 90_000;
 
+// ─── Frequency cap tracker ────────────────────────────────────────────────────
+interface FreqEntry { hourBucket: string; dayBucket: string; hourCount: number; dayCount: number; lastShownAt: number }
+const freqTracker = new Map<string, FreqEntry>();
+
+function checkFreqCap(adId: string, maxPerHour?: number | null, maxPerDay?: number | null, cooldownSeconds?: number | null): boolean {
+  const now = Date.now();
+  const d = new Date(now);
+  const hourBucket = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${d.getHours()}`;
+  const dayBucket = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+  const entry = freqTracker.get(adId) ?? { hourBucket, dayBucket, hourCount: 0, dayCount: 0, lastShownAt: 0 };
+  // Reset stale buckets
+  const hourCount = entry.hourBucket === hourBucket ? entry.hourCount : 0;
+  const dayCount = entry.dayBucket === dayBucket ? entry.dayCount : 0;
+  // Check cooldown
+  if (cooldownSeconds && now - entry.lastShownAt < cooldownSeconds * 1000) return false;
+  // Check hourly cap
+  if (maxPerHour && hourCount >= maxPerHour) return false;
+  // Check daily cap
+  if (maxPerDay && dayCount >= maxPerDay) return false;
+  return true;
+}
+
+function recordFreqShow(adId: string): void {
+  const now = Date.now();
+  const d = new Date(now);
+  const hourBucket = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${d.getHours()}`;
+  const dayBucket = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+  const entry = freqTracker.get(adId) ?? { hourBucket, dayBucket, hourCount: 0, dayCount: 0, lastShownAt: 0 };
+  freqTracker.set(adId, {
+    hourBucket,
+    dayBucket,
+    hourCount: entry.hourBucket === hourBucket ? entry.hourCount + 1 : 1,
+    dayCount: entry.dayBucket === dayBucket ? entry.dayCount + 1 : 1,
+    lastShownAt: now,
+  });
+}
+
 // ─── Screen ID management ─────────────────────────────────────────────────────
 function getOrCreateScreenId(urlScreenId: string | null): string {
   if (urlScreenId) {
@@ -365,9 +402,19 @@ export default function MainScreen({ screenId: urlScreenId }: MainScreenProps) {
 
   // ── Ad cycle ────────────────────────────────────────────────────────────────
   useEffect(() => {
-    adTimerRef.current = setTimeout(() => setShowAd(true), AD_INTERVAL);
+    adTimerRef.current = setTimeout(() => {
+      // Check frequency cap before showing
+      const ad = data?.currentAd as (typeof data)['currentAd'] & { maxPerHour?: number; maxPerDay?: number; cooldownSeconds?: number } | undefined;
+      if (ad && !checkFreqCap(ad.id, ad.maxPerHour, ad.maxPerDay, ad.cooldownSeconds)) {
+        // Skip this ad slot — advance index to try the next ad on next cycle
+        setAdIndex((i) => i + 1);
+        return;
+      }
+      if (ad) recordFreqShow(ad.id);
+      setShowAd(true);
+    }, AD_INTERVAL);
     return () => clearTimeout(adTimerRef.current);
-  }, [adIndex]);
+  }, [adIndex, data?.currentAd]);
 
   const handleAdComplete = useCallback(() => {
     setShowAd(false);

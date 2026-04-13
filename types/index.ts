@@ -36,6 +36,9 @@ export interface Advertisement {
   totalPlayTime: number;
   completions: number;
   targetImpressions?: number;
+  maxPerHour?: number;
+  maxPerDay?: number;
+  cooldownSeconds?: number;
   aiGenerated: boolean;
   aiPrompt?: string;
   createdAt: Date | string;

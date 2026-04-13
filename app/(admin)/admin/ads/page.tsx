@@ -57,6 +57,9 @@ export default function AdsPage() {
   const [scheduleStartHour, setScheduleStartHour] = useState(9);
   const [scheduleEndHour, setScheduleEndHour] = useState(22);
   const [targetImpressions, setTargetImpressions] = useState<number | ''>('');
+  const [maxPerHour, setMaxPerHour] = useState<number | ''>('');
+  const [maxPerDay, setMaxPerDay] = useState<number | ''>('');
+  const [cooldownSeconds, setCooldownSeconds] = useState<number | ''>('');
 
   const fetchAds = useCallback(async () => {
     try {
@@ -79,6 +82,9 @@ export default function AdsPage() {
     setScheduleStartHour(9);
     setScheduleEndHour(22);
     setTargetImpressions('');
+    setMaxPerHour('');
+    setMaxPerDay('');
+    setCooldownSeconds('');
     setShowForm(true);
   };
 
@@ -102,6 +108,9 @@ export default function AdsPage() {
     }
     setTextContent(tc);
     setTargetImpressions(ad.targetImpressions ?? '');
+    setMaxPerHour(ad.maxPerHour ?? '');
+    setMaxPerDay(ad.maxPerDay ?? '');
+    setCooldownSeconds(ad.cooldownSeconds ?? '');
     setForm({
       title: ad.title,
       description: ad.description ?? '',
@@ -150,7 +159,13 @@ export default function AdsPage() {
       const scheduleJson = scheduleEnabled && scheduleDays.length > 0
         ? JSON.stringify({ days: scheduleDays, startHour: scheduleStartHour, endHour: scheduleEndHour })
         : null;
-      const body = { ...form, content: finalContent, scheduleJson, targetImpressions: targetImpressions !== '' ? Number(targetImpressions) : null };
+      const body = {
+        ...form, content: finalContent, scheduleJson,
+        targetImpressions: targetImpressions !== '' ? Number(targetImpressions) : null,
+        maxPerHour: maxPerHour !== '' ? Number(maxPerHour) : null,
+        maxPerDay: maxPerDay !== '' ? Number(maxPerDay) : null,
+        cooldownSeconds: cooldownSeconds !== '' ? Number(cooldownSeconds) : null,
+      };
 
       const url = editingId ? `/api/ads/${editingId}` : '/api/ads';
       const method = editingId ? 'PUT' : 'POST';
@@ -546,6 +561,50 @@ export default function AdsPage() {
                 value={targetImpressions}
                 onChange={(e) => setTargetImpressions(e.target.value === '' ? '' : Number(e.target.value))}
               />
+            </div>
+
+            {/* Frequency Cap */}
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-xs font-semibold text-tv-text">⏱️ Frekans Sınırlama</span>
+                <span className="text-[10px] text-tv-muted">(opsiyonel)</span>
+              </div>
+              <p className="text-[11px] text-tv-muted mb-3">Aynı reklamın çok sık gösterilmesini önler</p>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="text-[10px] text-tv-muted mb-1 block">Saatte Maks.</label>
+                  <input
+                    type="number"
+                    min={1}
+                    className="input-field"
+                    placeholder="Örn: 3"
+                    value={maxPerHour}
+                    onChange={(e) => setMaxPerHour(e.target.value === '' ? '' : Number(e.target.value))}
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-tv-muted mb-1 block">Günde Maks.</label>
+                  <input
+                    type="number"
+                    min={1}
+                    className="input-field"
+                    placeholder="Örn: 20"
+                    value={maxPerDay}
+                    onChange={(e) => setMaxPerDay(e.target.value === '' ? '' : Number(e.target.value))}
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-tv-muted mb-1 block">Soğuma (sn)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    className="input-field"
+                    placeholder="Örn: 300"
+                    value={cooldownSeconds}
+                    onChange={(e) => setCooldownSeconds(e.target.value === '' ? '' : Number(e.target.value))}
+                  />
+                </div>
+              </div>
             </div>
 
             {/* Actions */}
