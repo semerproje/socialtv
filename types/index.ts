@@ -35,6 +35,7 @@ export interface Advertisement {
   impressions: number;
   totalPlayTime: number;
   completions: number;
+  targetImpressions?: number;
   aiGenerated: boolean;
   aiPrompt?: string;
   createdAt: Date | string;

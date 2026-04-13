@@ -99,6 +99,15 @@ export async function POST(request: NextRequest) {
     if (advertisementId) {
       if (type === 'ad_impression') {
         await db.advertisement.incrementStats(advertisementId, 'impressions', duration ?? 0);
+        // Auto-deactivate when impression budget is exhausted
+        const ad = await db.advertisement.findUnique(advertisementId);
+        if (ad && (ad as Record<string, unknown>).targetImpressions) {
+          const target = Number((ad as Record<string, unknown>).targetImpressions);
+          const current = (ad as Record<string, unknown>).impressions as number ?? 0;
+          if (current >= target) {
+            await db.advertisement.update(advertisementId, { isActive: false });
+          }
+        }
       } else if (type === 'ad_complete') {
         await db.advertisement.incrementStats(advertisementId, 'completions');
       }

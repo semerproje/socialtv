@@ -943,6 +943,37 @@ function SocialWallLayout({ instagramPosts, news, tickers, weather, primaryColor
 }
 
 // ─── 8. Ambient ───────────────────────────────────────────────────────────────
+
+/** Single animated digit with flip-style transition */
+function AnimDigit({ value, fontSize }: { value: string; fontSize: string }) {
+  return (
+    <span style={{ display: 'inline-block', position: 'relative', overflow: 'hidden', fontSize, lineHeight: 1 }}>
+      <AnimatePresence mode="popLayout" initial={false}>
+        <motion.span
+          key={value}
+          initial={{ y: '-100%', opacity: 0 }}
+          animate={{ y: '0%', opacity: 1 }}
+          exit={{ y: '100%', opacity: 0 }}
+          transition={{ duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
+          style={{ display: 'inline-block' }}
+        >
+          {value}
+        </motion.span>
+      </AnimatePresence>
+    </span>
+  );
+}
+
+/** Returns CSS background for the ambient canvas based on hour */
+function ambientBg(hour: number): string {
+  if (hour >= 5 && hour < 8)   return 'radial-gradient(ellipse 120% 80% at 50% 100%, #7c2d12 0%, #0f172a 55%)'; // dawn
+  if (hour >= 8 && hour < 12)  return 'radial-gradient(ellipse 120% 80% at 50% 100%, #1e3a5f 0%, #0f172a 55%)'; // morning
+  if (hour >= 12 && hour < 17) return 'radial-gradient(ellipse 120% 80% at 50% 100%, #0c2340 0%, #0f172a 55%)'; // afternoon
+  if (hour >= 17 && hour < 20) return 'radial-gradient(ellipse 100% 70% at 50% 100%, #7c3238 0%, #0f172a 55%)'; // sunset
+  if (hour >= 20 && hour < 23) return 'radial-gradient(ellipse 120% 80% at 40% 90%, #2c1654 0%, #0f172a 55%)';  // evening
+  return 'radial-gradient(ellipse 120% 80% at 30% 90%, #0d1b2e 0%, #020817 100%)';                              // night
+}
+
 function AmbientLayout({ weather, primaryColor, secondaryColor, tickers }: CommonProps) {
   const [now, setNow] = useState(new Date());
   useEffect(() => {
@@ -951,47 +982,61 @@ function AmbientLayout({ weather, primaryColor, secondaryColor, tickers }: Commo
   }, []);
 
   const pad = (n: number) => String(n).padStart(2, '0');
-  const h = pad(now.getHours());
-  const m = pad(now.getMinutes());
-  const s = pad(now.getSeconds());
+  const hStr = pad(now.getHours());
+  const mStr = pad(now.getMinutes());
+  const sStr = pad(now.getSeconds());
 
   const days = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
   const months = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
   const dateStr = `${days[now.getDay()]}, ${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}`;
 
+  const clockFontSize = 'clamp(100px, 22vw, 240px)';
+  const secFontSize = 'clamp(28px, 5vw, 64px)';
+
   return (
-    <div className="relative w-full h-full flex flex-col items-center justify-center overflow-hidden">
+    <motion.div
+      className="relative w-full h-full flex flex-col items-center justify-center overflow-hidden"
+      animate={{ background: ambientBg(now.getHours()) }}
+      transition={{ duration: 4, ease: 'easeInOut' }}
+    >
       {/* Radial glow */}
       <div
         className="absolute inset-0 pointer-events-none"
-        style={{ background: `radial-gradient(ellipse 70% 60% at 50% 50%, ${primaryColor}12 0%, transparent 70%)` }}
+        style={{ background: `radial-gradient(ellipse 70% 60% at 50% 50%, ${primaryColor}14 0%, transparent 70%)` }}
       />
       {/* Logo — top left */}
       <div className="absolute top-8 left-8">
-        <img src="/logo.png" alt="" className="h-8 w-auto object-contain opacity-40" />
+        <img src="/logo.png" alt="" className="h-8 w-auto object-contain opacity-35" />
       </div>
       {/* Main clock */}
-      <div className="flex flex-col items-center select-none">
+      <div className="flex flex-col items-center select-none" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+        {/* HH:MM with per-digit animation */}
         <div
-          className="tabular-nums leading-none font-light"
+          className="tabular-nums leading-none font-light flex items-center"
           style={{
-            fontFamily: "'Space Grotesk', sans-serif",
-            fontSize: 'clamp(100px, 22vw, 240px)',
             letterSpacing: '-0.04em',
             background: `linear-gradient(135deg, #ffffff 30%, ${primaryColor}cc 100%)`,
             WebkitBackgroundClip: 'text',
             WebkitTextFillColor: 'transparent',
           }}
         >
-          {h}<span style={{ opacity: 0.4 }}>:</span>{m}
+          <AnimDigit value={hStr[0]} fontSize={clockFontSize} />
+          <AnimDigit value={hStr[1]} fontSize={clockFontSize} />
+          <span style={{ fontSize: clockFontSize, opacity: 0.35, lineHeight: 1 }}>:</span>
+          <AnimDigit value={mStr[0]} fontSize={clockFontSize} />
+          <AnimDigit value={mStr[1]} fontSize={clockFontSize} />
         </div>
+        {/* Seconds */}
         <div
-          className="tabular-nums text-white/25 font-light mt-1"
-          style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 'clamp(28px, 5vw, 64px)', letterSpacing: '-0.02em' }}
+          className="tabular-nums text-white/20 font-light mt-1 flex items-center gap-0.5"
+          style={{ letterSpacing: '-0.02em' }}
         >
-          :{s}
+          <span style={{ fontSize: secFontSize }}>:</span>
+          <AnimDigit value={sStr[0]} fontSize={secFontSize} />
+          <AnimDigit value={sStr[1]} fontSize={secFontSize} />
         </div>
-        <div className="mt-5 text-white/40 text-xl font-light tracking-[0.3em] uppercase">{dateStr}</div>
+        {/* Date */}
+        <div className="mt-5 text-white/35 text-xl font-light tracking-[0.3em] uppercase">{dateStr}</div>
       </div>
       {/* Weather — bottom right */}
       {weather && (
@@ -1005,7 +1050,7 @@ function AmbientLayout({ weather, primaryColor, secondaryColor, tickers }: Commo
           <NewsTicker messages={tickers} primaryColor={primaryColor} />
         </div>
       )}
-    </div>
+    </motion.div>
   );
 }
 

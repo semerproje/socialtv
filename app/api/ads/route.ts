@@ -42,6 +42,7 @@ export async function POST(request: NextRequest) {
       startDate, endDate, scheduleJson,
       backgroundColor, textColor, accentColor,
       aiGenerated = false, aiPrompt,
+      targetImpressions,
     } = body;
 
     if (!title || !type || !content) {
@@ -62,6 +63,7 @@ export async function POST(request: NextRequest) {
         scheduleJson,
         backgroundColor, textColor, accentColor,
         aiGenerated, aiPrompt,
+        ...(targetImpressions ? { targetImpressions: Number(targetImpressions) } : {}),
       },
     });
 

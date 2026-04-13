@@ -34,6 +34,7 @@ export async function PUT(request: NextRequest, context: { params: Promise<{ id:
       duration, priority, isActive,
       startDate, endDate, scheduleJson,
       backgroundColor, textColor, accentColor,
+      targetImpressions,
     } = body;
 
     const ad = await db.advertisement.update(id, {
@@ -51,6 +52,7 @@ export async function PUT(request: NextRequest, context: { params: Promise<{ id:
         ...(backgroundColor !== undefined && { backgroundColor }),
         ...(textColor !== undefined && { textColor }),
         ...(accentColor !== undefined && { accentColor }),
+        ...(targetImpressions !== undefined && { targetImpressions: targetImpressions ? Number(targetImpressions) : null }),
     });
 
     return NextResponse.json({ success: true, data: ad });

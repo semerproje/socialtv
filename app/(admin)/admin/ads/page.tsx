@@ -56,6 +56,7 @@ export default function AdsPage() {
   const [scheduleDays, setScheduleDays] = useState<number[]>([]);
   const [scheduleStartHour, setScheduleStartHour] = useState(9);
   const [scheduleEndHour, setScheduleEndHour] = useState(22);
+  const [targetImpressions, setTargetImpressions] = useState<number | ''>('');
 
   const fetchAds = useCallback(async () => {
     try {
@@ -77,6 +78,7 @@ export default function AdsPage() {
     setScheduleDays([]);
     setScheduleStartHour(9);
     setScheduleEndHour(22);
+    setTargetImpressions('');
     setShowForm(true);
   };
 
@@ -99,6 +101,7 @@ export default function AdsPage() {
       setScheduleDays([]);
     }
     setTextContent(tc);
+    setTargetImpressions(ad.targetImpressions ?? '');
     setForm({
       title: ad.title,
       description: ad.description ?? '',
@@ -147,7 +150,7 @@ export default function AdsPage() {
       const scheduleJson = scheduleEnabled && scheduleDays.length > 0
         ? JSON.stringify({ days: scheduleDays, startHour: scheduleStartHour, endHour: scheduleEndHour })
         : null;
-      const body = { ...form, content: finalContent, scheduleJson };
+      const body = { ...form, content: finalContent, scheduleJson, targetImpressions: targetImpressions !== '' ? Number(targetImpressions) : null };
 
       const url = editingId ? `/api/ads/${editingId}` : '/api/ads';
       const method = editingId ? 'PUT' : 'POST';
@@ -530,6 +533,21 @@ export default function AdsPage() {
               )}
             </div>
 
+            {/* Impression Budget */}
+            <div>
+              <label className="text-xs font-medium text-tv-muted mb-1.5 block">
+                🎯 Gösterim Bütçesi <span className="text-white/20">(opsiyonel)</span>
+              </label>
+              <input
+                type="number"
+                min={1}
+                className="input-field"
+                placeholder="Örn: 500 — limite ulaşınca otomatik durdurulur"
+                value={targetImpressions}
+                onChange={(e) => setTargetImpressions(e.target.value === '' ? '' : Number(e.target.value))}
+              />
+            </div>
+
             {/* Actions */}
             <div className="flex gap-3 pt-2">
               <button onClick={() => setShowForm(false)} className="btn-secondary flex-1">
@@ -606,6 +624,9 @@ export default function AdsPage() {
                         {ad.scheduleJson && (
                           <span className="badge badge-muted">🕐 Planlı</span>
                         )}
+                        {ad.targetImpressions && (
+                          <span className="badge badge-muted">🎯 {formatNumber(ad.targetImpressions)}</span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -636,15 +657,27 @@ export default function AdsPage() {
                 {ad.impressions > 0 && (
                   <div className="mb-3">
                     <div className="flex justify-between text-xs text-tv-muted mb-1">
-                      <span>{formatNumber(ad.impressions)} gösterim</span>
+                      <span>{formatNumber(ad.impressions)} gösterim{ad.targetImpressions ? ` / ${formatNumber(ad.targetImpressions)}` : ''}</span>
                       <span>%{Math.round((ad.completions / ad.impressions) * 100)} tamamlanma</span>
                     </div>
                     <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
                       <div
-                        className="h-full rounded-full bg-indigo-500 transition-all duration-500"
-                        style={{ width: `${Math.min(100, Math.round((ad.completions / ad.impressions) * 100))}%` }}
+                        className="h-full rounded-full transition-all duration-500"
+                        style={{
+                          width: ad.targetImpressions
+                            ? `${Math.min(100, Math.round((ad.impressions / ad.targetImpressions) * 100))}%`
+                            : `${Math.min(100, Math.round((ad.completions / ad.impressions) * 100))}%`,
+                          background: ad.targetImpressions && ad.impressions >= ad.targetImpressions
+                            ? '#ef4444'
+                            : '#6366f1',
+                        }}
                       />
                     </div>
+                    {ad.targetImpressions && (
+                      <p className="text-[10px] text-tv-muted mt-0.5 text-right">
+                        {Math.min(100, Math.round((ad.impressions / ad.targetImpressions) * 100))}% bütçe kullanıldı
+                      </p>
+                    )}
                   </div>
                 )}
 
