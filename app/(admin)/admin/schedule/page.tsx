@@ -89,6 +89,13 @@ function eventHeight(startAt: string, endAt?: string): number {
   return Math.max(2, (diff / (24 * 60 * 60 * 1000)) * 100);
 }
 
+function getPriorityScore(priority?: SchedulePriority | string): number {
+  if (priority === 'critical') return 4;
+  if (priority === 'high') return 3;
+  if (priority === 'normal') return 2;
+  return 1;
+}
+
 // ─── AI Weekly Generator Modal ────────────────────────────────────────────────
 
 interface AIWeekPreview {
@@ -937,11 +944,45 @@ export default function SchedulePage() {
     const bScreen = c.b.screenId ? (screenMap[c.b.screenId]?.name ?? 'Bilinmeyen Ekran') : 'Tüm Ekranlar';
     return {
       key: `${c.a.id}-${c.b.id}-${i}`,
+      conflict: c,
       left: `${c.a.title} (${String(aStart.getHours()).padStart(2, '0')}:${String(aStart.getMinutes()).padStart(2, '0')})`,
       right: `${c.b.title} (${String(bStart.getHours()).padStart(2, '0')}:${String(bStart.getMinutes()).padStart(2, '0')})`,
       scope: aScreen === bScreen ? aScreen : `${aScreen} ↔ ${bScreen}`,
     };
   });
+
+  const autoResolveConflict = async (conflict: { a: ScheduleEvent; b: ScheduleEvent }) => {
+    const first = new Date(conflict.a.startAt).getTime() <= new Date(conflict.b.startAt).getTime() ? conflict.a : conflict.b;
+    const second = first.id === conflict.a.id ? conflict.b : conflict.a;
+    const firstPriority = getPriorityScore(first.priority);
+    const secondPriority = getPriorityScore(second.priority);
+    const moveTarget = secondPriority < firstPriority ? second : firstPriority < secondPriority ? first : second;
+    const anchor = moveTarget.id === second.id ? first : second;
+
+    const moveStart = new Date(moveTarget.startAt);
+    const moveEnd = moveTarget.endAt ? new Date(moveTarget.endAt) : new Date(moveStart.getTime() + 60 * 60 * 1000);
+    const durationMs = Math.max(30 * 60 * 1000, moveEnd.getTime() - moveStart.getTime());
+    const anchorEnd = anchor.endAt ? new Date(anchor.endAt) : new Date(new Date(anchor.startAt).getTime() + 60 * 60 * 1000);
+    const nextStart = new Date(anchorEnd.getTime() + 15 * 60 * 1000);
+    const nextEnd = new Date(nextStart.getTime() + durationMs);
+
+    try {
+      const res = await fetch(`/api/schedule/${moveTarget.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          startAt: nextStart.toISOString(),
+          endAt: nextEnd.toISOString(),
+        }),
+      });
+      if (!res.ok) throw new Error('Çakışma çözümü kaydedilemedi');
+      toast.success(`"${moveTarget.title}" ${String(nextStart.getHours()).padStart(2, '0')}:${String(nextStart.getMinutes()).padStart(2, '0')} saatine kaydırıldı`);
+      setConflictAiSuggestions(null);
+      await fetchAll();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Çakışma çözülemedi');
+    }
+  };
 
   const fetchConflictSuggestions = async () => {
     if (conflicts.length === 0) {
@@ -1031,8 +1072,18 @@ export default function SchedulePage() {
                 <div className="space-y-2">
                   {conflictRows.map((row) => (
                     <div key={row.key} className="rounded-lg border border-white/10 bg-black/20 px-2.5 py-2">
-                      <p className="text-xs text-white/85">{row.left} <span className="text-white/25">↔</span> {row.right}</p>
-                      <p className="text-[10px] text-white/40 mt-0.5">Kapsam: {row.scope}</p>
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-xs text-white/85">{row.left} <span className="text-white/25">↔</span> {row.right}</p>
+                          <p className="text-[10px] text-white/40 mt-0.5">Kapsam: {row.scope}</p>
+                        </div>
+                        <button
+                          onClick={() => autoResolveConflict(row.conflict)}
+                          className="text-[10px] px-2 py-1 rounded-lg border border-emerald-500/40 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 transition-all flex-shrink-0"
+                        >
+                          Hızlı Çöz
+                        </button>
+                      </div>
                     </div>
                   ))}
                   {conflicts.length > conflictRows.length && (
