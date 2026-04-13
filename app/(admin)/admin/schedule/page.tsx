@@ -558,6 +558,85 @@ interface WeeklyTemplate {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
+// ─── Prime Time Strip ─────────────────────────────────────────────────────────
+
+interface PrimeTimeSlot {
+  hour: number;
+  score: number;  // 0–100
+  label: string;
+}
+
+function computePrimeSlots(hourlyData: Array<{ hour: number; impressions?: number; views?: number }>): PrimeTimeSlot[] {
+  if (!hourlyData?.length) return [];
+  const HOUR_LABELS: Record<number, string> = {
+    6: 'Sabah', 7: 'Sabah', 8: 'Sabah', 9: 'Sabah Üstü', 10: 'Sabah Üstü', 11: 'Öğle Öncesi',
+    12: 'Öğle', 13: 'Öğle', 14: 'Öğleden Sonra', 15: 'İkindi', 16: 'İkindi',
+    17: 'Akşamüstü', 18: 'Akşamüstü', 19: 'Akşam', 20: 'Akşam', 21: 'Akşam',
+    22: 'Gece', 23: 'Gece', 0: 'Gece Yarısı', 1: 'Gece Yarısı',
+  };
+  const maxVal = Math.max(...hourlyData.map((d) => (d.impressions ?? 0) + (d.views ?? 0)), 1);
+  return hourlyData
+    .map((d) => ({
+      hour: d.hour,
+      score: Math.round(((d.impressions ?? 0) + (d.views ?? 0)) / maxVal * 100),
+      label: HOUR_LABELS[d.hour] ?? String(d.hour),
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5);
+}
+
+function PrimeTimeStrip({ primeSlots, show, onToggle }: { primeSlots: PrimeTimeSlot[]; show: boolean; onToggle: () => void }) {
+  if (primeSlots.length === 0) return null;
+  const top3 = [...primeSlots].slice(0, 3).sort((a, b) => a.hour - b.hour);
+  return (
+    <div className="flex-shrink-0 border-b" style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(16,185,129,0.03)' }}>
+      <div className="px-6 py-2.5 flex items-center gap-4">
+        <button onClick={onToggle} className="flex items-center gap-1.5 text-[11px] text-emerald-400/70 hover:text-emerald-400 transition-colors flex-shrink-0 font-medium">
+          <span>📈</span>
+          <span className="uppercase tracking-[0.12em]">Prime Time</span>
+          <span className="text-emerald-400/40 ml-0.5">{show ? '▲' : '▼'}</span>
+        </button>
+        {!show && (
+          <div className="flex items-center gap-2 overflow-x-auto">
+            {top3.map((slot) => (
+              <div key={slot.hour} className="flex items-center gap-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 flex-shrink-0">
+                <span className="text-emerald-300 font-bold text-xs tabular-nums">{String(slot.hour).padStart(2, '0')}:00</span>
+                <span className="text-emerald-400/50 text-[10px]">·</span>
+                <span className="text-emerald-400/60 text-[10px]">{slot.label}</span>
+                <div className="ml-1 flex gap-px">
+                  {[...Array(5)].map((_, i) => (
+                    <div key={i} className="w-1 rounded-sm" style={{ height: 10, background: i < Math.round(slot.score / 20) ? '#10b981' : 'rgba(255,255,255,0.06)' }} />
+                  ))}
+                </div>
+              </div>
+            ))}
+            <span className="text-[10px] text-white/20 flex-shrink-0">← geçen 7 gün izlenme verisi</span>
+          </div>
+        )}
+        {show && (
+          <div className="flex items-center gap-1.5 overflow-x-auto">
+            {primeSlots.map((slot) => (
+              <div key={slot.hour} className="flex flex-col items-center rounded-xl border px-2.5 py-2 flex-shrink-0 transition-all"
+                style={{ borderColor: slot.score >= 70 ? 'rgba(16,185,129,0.4)' : 'rgba(255,255,255,0.08)', background: slot.score >= 70 ? 'rgba(16,185,129,0.08)' : 'rgba(255,255,255,0.02)' }}>
+                <span className="text-xs font-bold tabular-nums" style={{ color: slot.score >= 70 ? '#10b981' : '#9ca3af' }}>{String(slot.hour).padStart(2,'0')}:00</span>
+                <div className="flex gap-px my-1">
+                  {[...Array(5)].map((_, i) => (
+                    <div key={i} className="w-1.5 rounded-sm" style={{ height: 12, background: i < Math.round(slot.score / 20) ? (slot.score >= 70 ? '#10b981' : '#6366f1') : 'rgba(255,255,255,0.06)' }} />
+                  ))}
+                </div>
+                <span className="text-[9px]" style={{ color: slot.score >= 70 ? 'rgba(16,185,129,0.6)' : 'rgba(255,255,255,0.2)' }}>{slot.label}</span>
+              </div>
+            ))}
+            <span className="text-[10px] text-white/20 ml-2 flex-shrink-0">Son 7 gün saatlik izlenme yoğunluğu</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
 export default function SchedulePage() {
   const [weekStart, setWeekStart] = useState<Date>(() => getWeekStart(new Date()));
   const [events, setEvents] = useState<ScheduleEvent[]>([]);
@@ -567,6 +646,8 @@ export default function SchedulePage() {
   const [showForm, setShowForm] = useState(false);
   const [showAIWeekly, setShowAIWeekly] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
+  const [showPrimeTime, setShowPrimeTime] = useState(false);
+  const [primeSlots, setPrimeSlots] = useState<PrimeTimeSlot[]>([]);
   const [templates, setTemplates] = useState<WeeklyTemplate[]>([]);
   const [templateName, setTemplateName] = useState('');
   const [savingTemplate, setSavingTemplate] = useState(false);
@@ -579,10 +660,11 @@ export default function SchedulePage() {
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [evRes, scrRes, tvRes] = await Promise.allSettled([
+      const [evRes, scrRes, tvRes, analyticsRes] = await Promise.allSettled([
         fetch('/api/schedule'),
         fetch('/api/screens'),
         fetch('/api/tv-channels?active=1'),
+        fetch('/api/analytics?days=7'),
       ]);
       if (evRes.status === 'fulfilled' && evRes.value.ok) {
         const d = await evRes.value.json();
@@ -595,6 +677,12 @@ export default function SchedulePage() {
       if (tvRes.status === 'fulfilled' && tvRes.value.ok) {
         const d = await tvRes.value.json();
         setChannels(d.data ?? []);
+      }
+      if (analyticsRes.status === 'fulfilled' && analyticsRes.value.ok) {
+        const d = await analyticsRes.value.json();
+        if (d.success && d.data?.hourlyData) {
+          setPrimeSlots(computePrimeSlots(d.data.hourlyData));
+        }
       }
     } finally {
       setLoading(false);
@@ -999,6 +1087,9 @@ export default function SchedulePage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Prime Time Strip */}
+      <PrimeTimeStrip primeSlots={primeSlots} show={showPrimeTime} onToggle={() => setShowPrimeTime((v) => !v)} />
 
       {/* Calendar */}
       <div className="flex-1 flex overflow-hidden">

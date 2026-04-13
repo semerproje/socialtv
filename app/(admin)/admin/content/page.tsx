@@ -60,6 +60,8 @@ const emptyForm = {
   views: 0,
   isApproved: false,
   isFeatured: false,
+  scheduledFor: '',
+  externalId: '',
 };
 
 export default function ContentPage() {
@@ -446,6 +448,20 @@ export default function ContentPage() {
                   <option value="video">Video</option>
                 </select>
               </div>
+              <div>
+                <label className="text-xs text-tv-muted mb-1 block">⏰ Yayın Zamanı</label>
+                <input
+                  type="datetime-local"
+                  className="input-field"
+                  value={form.scheduledFor}
+                  onChange={(e) => setForm({ ...form, scheduledFor: e.target.value })}
+                />
+                <p className="text-[10px] text-tv-muted mt-1">Boş bırakılırsa hemen yayına girer</p>
+              </div>
+              <div>
+                <label className="text-xs text-tv-muted mb-1 block">External ID</label>
+                <input className="input-field" placeholder="IG post ID, tweet ID..." value={form.externalId} onChange={(e) => setForm({ ...form, externalId: e.target.value })} />
+              </div>
               <div className="col-span-2 flex gap-4">
                 <div className="flex items-center gap-2">
                   <input type="checkbox" id="isApproved" checked={form.isApproved} onChange={(e) => setForm({ ...form, isApproved: e.target.checked })} className="accent-indigo-500" />
@@ -508,6 +524,9 @@ export default function ContentPage() {
                   {item.authorHandle && <span className="text-tv-muted text-xs">{item.authorHandle}</span>}
                   {item.isFeatured && <span className="badge badge-warning">⭐ Öne Çıkan</span>}
                   {item.isHighlight && <span className="badge badge-primary">🤖 AI</span>}
+                  {item.scheduledFor && new Date(item.scheduledFor as string) > new Date() && (
+                    <span className="badge" style={{ background: 'rgba(99,102,241,0.15)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.3)' }}>⏰ Planlandı</span>
+                  )}
                   {sentimentBadge(item.sentiment ?? undefined)}
                   {/* Score badge */}
                   {(() => { const s = calcScore(item); return s > 0 ? (

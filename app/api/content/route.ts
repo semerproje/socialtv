@@ -57,6 +57,7 @@ export async function POST(request: NextRequest) {
       likes = 0, comments = 0, shares = 0, views = 0,
       isApproved = false, isFeatured = false,
       externalId, externalUrl,
+      scheduledFor,
       autoAnalyze = true,
     } = body;
 
@@ -65,6 +66,18 @@ export async function POST(request: NextRequest) {
         { success: false, error: 'author ve text zorunludur' },
         { status: 400 },
       );
+    }
+
+    // Duplicate detection by externalId
+    if (externalId) {
+      const existing = await db.content.findMany({ where: {} });
+      const dupe = existing.find((c) => c.externalId === externalId);
+      if (dupe) {
+        return NextResponse.json(
+          { success: false, error: `Bu içerik zaten mevcut (ID: ${externalId})` },
+          { status: 409 },
+        );
+      }
     }
 
     // AI Moderation & Analysis
@@ -100,6 +113,7 @@ export async function POST(request: NextRequest) {
         isApproved, isFeatured,
         moderationPassed,
         externalId, externalUrl,
+        scheduledFor: scheduledFor || null,
         ...aiData,
     });
 

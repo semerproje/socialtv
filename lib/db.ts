@@ -98,7 +98,7 @@ export const advertisement = {
 
 export const content = {
   async findMany(opts?: {
-    where?: { isApproved?: boolean; moderationPassed?: boolean; platform?: string; isFeatured?: boolean };
+    where?: { isApproved?: boolean; moderationPassed?: boolean; platform?: string; isFeatured?: boolean; hideScheduled?: boolean };
     orderBy?: unknown[];
     skip?: number;
     take?: number;
@@ -109,6 +109,11 @@ export const content = {
     if (opts?.where?.moderationPassed !== undefined) all = all.filter((d) => d.moderationPassed === opts.where!.moderationPassed);
     if (opts?.where?.platform) all = all.filter((d) => d.platform === opts.where!.platform);
     if (opts?.where?.isFeatured !== undefined) all = all.filter((d) => d.isFeatured === opts.where!.isFeatured);
+    // Filter out content scheduled for the future (used by display route)
+    if (opts?.where?.hideScheduled !== false) {
+      const now = Date.now();
+      all = all.filter((d) => !d.scheduledFor || new Date(d.scheduledFor as string).getTime() <= now);
+    }
     all.sort((a, b) => ((b.isFeatured ? 1 : 0) - (a.isFeatured ? 1 : 0)) || ((b.isHighlight ? 1 : 0) - (a.isHighlight ? 1 : 0)));
     if (opts?.take) all = all.slice(opts.skip ?? 0, (opts.skip ?? 0) + opts.take);
     return opts?.skip && !opts?.take ? all.slice(opts.skip) : all;
