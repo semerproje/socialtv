@@ -647,6 +647,8 @@ export default function SchedulePage() {
   const [showAIWeekly, setShowAIWeekly] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showConflictDetails, setShowConflictDetails] = useState(false);
+  const [conflictAiLoading, setConflictAiLoading] = useState(false);
+  const [conflictAiSuggestions, setConflictAiSuggestions] = useState<string | null>(null);
   const [showPrimeTime, setShowPrimeTime] = useState(false);
   const [primeSlots, setPrimeSlots] = useState<PrimeTimeSlot[]>([]);
   const [templates, setTemplates] = useState<WeeklyTemplate[]>([]);
@@ -941,6 +943,52 @@ export default function SchedulePage() {
     };
   });
 
+  const fetchConflictSuggestions = async () => {
+    if (conflicts.length === 0) {
+      setConflictAiSuggestions('Çakışma yok. Mevcut takvim dengeli görünüyor.');
+      return;
+    }
+    setConflictAiLoading(true);
+    try {
+      const lines = conflicts.slice(0, 10).map((c, i) => {
+        const aStart = new Date(c.a.startAt);
+        const bStart = new Date(c.b.startAt);
+        const aScreen = c.a.screenId ? (screenMap[c.a.screenId]?.name ?? 'Bilinmeyen Ekran') : 'Tüm Ekranlar';
+        const bScreen = c.b.screenId ? (screenMap[c.b.screenId]?.name ?? 'Bilinmeyen Ekran') : 'Tüm Ekranlar';
+        const aTime = `${String(aStart.getHours()).padStart(2, '0')}:${String(aStart.getMinutes()).padStart(2, '0')}`;
+        const bTime = `${String(bStart.getHours()).padStart(2, '0')}:${String(bStart.getMinutes()).padStart(2, '0')}`;
+        return `${i + 1}. "${c.a.title}" (${aTime}, ${aScreen}) ↔ "${c.b.title}" (${bTime}, ${bScreen})`;
+      });
+
+      const prompt = [
+        'Aşağıdaki yayın takvimi çakışmaları için kısa ve uygulanabilir çözüm önerileri üret.',
+        'Kısıtlar: işletme ekranı yayını, mümkünse yüksek öncelikli etkinliği koru, kaydırma önerisi dakikayı net versin (ör: 15:30).',
+        'Format:',
+        '- Çakışma #N: Öneri',
+        '- Gerekçe',
+        '',
+        'Çakışmalar:',
+        ...lines,
+      ].join('\n');
+
+      const res = await fetch('/api/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          includeContext: false,
+          messages: [{ role: 'user', content: prompt }],
+        }),
+      });
+      const d = await res.json();
+      if (!res.ok || !d.success) throw new Error(d.error ?? 'AI önerisi alınamadı');
+      setConflictAiSuggestions(d.data.reply ?? 'Öneri üretilemedi');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'AI öneri hatası');
+    } finally {
+      setConflictAiLoading(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-[#030712]">
       {/* Header */}
@@ -967,7 +1015,16 @@ export default function SchedulePage() {
           </div>
           {showConflictDetails && (
             <div className="mt-3 rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2.5 max-w-[560px]">
-              <p className="text-[11px] uppercase tracking-[0.12em] text-amber-400/80 font-semibold mb-2">Çakışma Detayı</p>
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <p className="text-[11px] uppercase tracking-[0.12em] text-amber-400/80 font-semibold">Çakışma Detayı</p>
+                <button
+                  onClick={fetchConflictSuggestions}
+                  disabled={conflictAiLoading}
+                  className="text-[10px] px-2 py-1 rounded-lg border border-indigo-500/40 bg-indigo-500/15 text-indigo-300 hover:bg-indigo-500/25 transition-all disabled:opacity-40"
+                >
+                  {conflictAiLoading ? '⏳ AI analiz…' : '🤖 AI Çözüm Öner'}
+                </button>
+              </div>
               {conflictRows.length === 0 ? (
                 <p className="text-xs text-emerald-300">Çakışma yok, takvim temiz.</p>
               ) : (
@@ -981,6 +1038,16 @@ export default function SchedulePage() {
                   {conflicts.length > conflictRows.length && (
                     <p className="text-[10px] text-white/35">+{conflicts.length - conflictRows.length} çakışma daha</p>
                   )}
+                </div>
+              )}
+              {conflictAiSuggestions && (
+                <div className="mt-3 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-2.5 py-2">
+                  <p className="text-[10px] uppercase tracking-[0.1em] text-indigo-300/80 mb-1">AI Çözüm Önerileri</p>
+                  <div className="space-y-1">
+                    {conflictAiSuggestions.split('\n').filter(Boolean).map((line, i) => (
+                      <p key={i} className="text-xs text-white/80 leading-relaxed">{line.replace(/^[-•*]\s*/, '')}</p>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
