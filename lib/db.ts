@@ -681,9 +681,11 @@ export const playlistItem = {
   async findManyByPlaylist(playlistId: string) {
     const snap = await col('playlist_items')
       .where('playlistId', '==', playlistId)
-      .orderBy('order', 'asc')
       .get();
-    return snap.docs.map((d) => docToObj(d)!);
+    // Composite index gerektirmemek için sıralama kod tarafında yapılıyor
+    const docs = snap.docs.map((d) => docToObj(d)!);
+    docs.sort((a, b) => ((a.order as number) ?? 0) - ((b.order as number) ?? 0));
+    return docs;
   },
 
   async create(data: Record<string, unknown>) {
