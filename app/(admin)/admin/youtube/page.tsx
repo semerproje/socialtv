@@ -36,8 +36,26 @@ interface PlaylistData {
   color?: string;
 }
 
+interface ScreenData {
+  id: string;
+  name: string;
+  location?: string;
+  layoutType?: string;
+  groupId?: string;
+  isOnline?: boolean;
+  group?: { id: string; name: string } | null;
+}
+
+interface ScreenGroupData {
+  id: string;
+  name: string;
+  color?: string;
+  screenCount?: number;
+}
+
 type TabType = 'videos' | 'playlists' | 'broadcast';
 type FilterType = 'all' | 'active' | 'inactive';
+type SendTarget = 'all' | 'group' | 'screens';
 type ViewMode = 'grid' | 'list';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -102,6 +120,19 @@ export default function YouTubePage() {
 
   const urlDebounceRef = useRef<ReturnType<typeof setTimeout>>();
 
+  // Ekran ve grup state
+  const [screens, setScreens] = useState<ScreenData[]>([]);
+  const [screenGroups, setScreenGroups] = useState<ScreenGroupData[]>([]);
+
+  // Gönder modal state
+  const [showSendModal, setShowSendModal] = useState(false);
+  const [sendModalPlaylist, setSendModalPlaylist] = useState<PlaylistData | null>(null);
+  const [sendTarget, setSendTarget] = useState<SendTarget>('all');
+  const [sendGroupId, setSendGroupId] = useState('');
+  const [sendScreenIds, setSendScreenIds] = useState<Set<string>>(new Set());
+  const [sendLayout, setSendLayout] = useState('youtube');
+  const [sendingBroadcast, setSendingBroadcast] = useState(false);
+
   const fetchData = useCallback(async () => {
     try {
       const res = await fetch('/api/youtube?active=0');
@@ -120,7 +151,21 @@ export default function YouTubePage() {
     }
   }, []);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  const fetchScreens = useCallback(async () => {
+    try {
+      const res = await fetch('/api/screens');
+      if (res.ok) {
+        const d = await res.json();
+        setScreens(d.data ?? []);
+        setScreenGroups(d.groups ?? []);
+      }
+    } catch { /* sessizce geç */ }
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+    fetchScreens();
+  }, [fetchData, fetchScreens]);
 
   async function fetchYouTubeMeta(urlOrId: string, isForm = true) {
     const vid = extractYouTubeId(urlOrId);
@@ -431,15 +476,84 @@ export default function YouTubePage() {
     toast.success(`${active.length} video playlist olarak yayınlandı`);
   }
 
-  async function broadcastPlaylistById(pl: PlaylistData) {
-    const plVideos = videos.filter((v) => v.playlistId === pl.id && v.isActive);
+  // ─── Send Modal ─────────────────────────────────────────────────────────────
+  function openSendModal(pl: PlaylistData) {
+    setSendModalPlaylist(pl);
+    setSendTarget('all');
+    setSendGroupId(screenGroups[0]?.id ?? '');
+    setSendScreenIds(new Set());
+    setSendLayout('youtube');
+    setShowSendModal(true);
+  }
+
+  function closeSendModal() {
+    setShowSendModal(false);
+    setSendModalPlaylist(null);
+  }
+
+  async function executeSendPlaylist() {
+    if (!sendModalPlaylist) return;
+    const plVideos = videos.filter((v) => v.playlistId === sendModalPlaylist.id && v.isActive);
     if (plVideos.length === 0) { toast.error('Playlist boş veya tüm videolar pasif'); return; }
+
+    setSendingBroadcast(true);
+    try {
+      // Hedef ekranları belirle
+      let targetScreenIds: string[] | undefined;
+      if (sendTarget === 'group' && sendGroupId) {
+        targetScreenIds = screens.filter((s) => s.groupId === sendGroupId).map((s) => s.id);
+        if (targetScreenIds.length === 0) { toast.error('Bu grupta bağlı ekran yok'); return; }
+      } else if (sendTarget === 'screens' && sendScreenIds.size > 0) {
+        targetScreenIds = Array.from(sendScreenIds);
+      }
+
+      const mkBody = (event: string, data: unknown) => {
+        const b: Record<string, unknown> = { event, data };
+        if (targetScreenIds) b.screenIds = targetScreenIds;
+        return JSON.stringify(b);
+      };
+
+      const headers = { 'Content-Type': 'application/json' };
+
+      // Önce layout değiştir
+      if (sendLayout && sendLayout !== 'none') {
+        await fetch('/api/sync/broadcast', {
+          method: 'POST', headers,
+          body: mkBody('change_layout', { layoutType: sendLayout }),
+        });
+      }
+
+      // Sonra playlist gönder
+      await fetch('/api/sync/broadcast', {
+        method: 'POST', headers,
+        body: mkBody('play_playlist', {
+          videos: plVideos.map((v) => ({ videoId: v.videoId, title: v.title })),
+          loop: sendModalPlaylist.loop,
+          shuffle: sendModalPlaylist.shuffle,
+        }),
+      });
+
+      const targetLabel =
+        sendTarget === 'all' ? 'tüm ekranlara' :
+        sendTarget === 'group' ? `"${screenGroups.find((g) => g.id === sendGroupId)?.name}" grubuna` :
+        `${sendScreenIds.size} ekrana`;
+
+      toast.success(`"${sendModalPlaylist.name}" ${targetLabel} gönderildi`);
+      closeSendModal();
+    } finally {
+      setSendingBroadcast(false);
+    }
+  }
+
+  // Broadcast tab için hedef-agnostik yayın yardımcısı
+  async function dispatchBroadcast(event: string, data: unknown, targetScreenIds?: string[]) {
+    const b: Record<string, unknown> = { event, data };
+    if (targetScreenIds && targetScreenIds.length > 0) b.screenIds = targetScreenIds;
     await fetch('/api/sync/broadcast', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ event: 'play_playlist', data: { videos: plVideos.map((v) => ({ videoId: v.videoId, title: v.title })) } }),
+      body: JSON.stringify(b),
     });
-    toast.success(`"${pl.name}" tüm ekranlarda oynatılıyor`);
   }
 
   async function changeLayout(layoutType: string) {
@@ -454,7 +568,17 @@ export default function YouTubePage() {
   async function handleQuickBroadcast() {
     const vid = extractYouTubeId(broadcastUrl);
     if (!vid) { toast.error('Geçersiz YouTube URL'); return; }
-    await broadcastVideo(vid, broadcastTitle || 'YouTube');
+
+    const getTargetIds = () => {
+      if (sendTarget === 'group' && sendGroupId)
+        return screens.filter((s) => s.groupId === sendGroupId).map((s) => s.id);
+      if (sendTarget === 'screens' && sendScreenIds.size > 0)
+        return Array.from(sendScreenIds);
+      return undefined;
+    };
+
+    await dispatchBroadcast('play_youtube', { videoId: vid, title: broadcastTitle || 'YouTube' }, getTargetIds());
+    toast.success(`"${(broadcastTitle || 'YouTube').slice(0, 40)}" yayınlandı`);
     setBroadcastUrl('');
     setBroadcastTitle('');
     setBroadcastPreview('');
@@ -757,7 +881,7 @@ export default function YouTubePage() {
                   playlist={pl}
                   index={i}
                   videos={videos.filter((v) => v.playlistId === pl.id)}
-                  onBroadcast={() => broadcastPlaylistById(pl)}
+                  onBroadcast={() => openSendModal(pl)}
                   onDelete={() => deletePlaylist(pl.id)}
                   onEdit={() => openEditPlaylistModal(pl)}
                   onDetail={() => openDetailView(pl)}
@@ -770,11 +894,146 @@ export default function YouTubePage() {
 
       {/* BROADCAST TAB */}
       {activeTab === 'broadcast' && (
-        <div className="space-y-4 max-w-2xl">
+        <div className="space-y-5 max-w-3xl">
+
+          {/* ── Hedef Seçimi ─────────────────────────── */}
+          <div className="admin-card space-y-4">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4 text-indigo-400">
+                  <circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="4" />
+                  <path d="M12 2v2M12 20v2M2 12h2M20 12h2" strokeLinecap="round" />
+                </svg>
+              </div>
+              <h3 className="font-semibold text-tv-text">Yayın Hedefi</h3>
+              <span className="ml-auto text-xs text-tv-muted">
+                {screens.filter((s) => s.isOnline).length}/{screens.length} ekran çevrimiçi
+              </span>
+            </div>
+
+            {/* Target type buttons */}
+            <div className="grid grid-cols-3 gap-2">
+              {([
+                { key: 'all' as SendTarget, label: 'Tüm Ekranlar', icon: '📺', desc: `${screens.filter(s => s.isOnline).length} aktif` },
+                { key: 'group' as SendTarget, label: 'Grup', icon: '🗂️', desc: `${screenGroups.length} grup` },
+                { key: 'screens' as SendTarget, label: 'Belirli Ekran', icon: '🖥️', desc: `${screens.length} ekran` },
+              ] as const).map((t) => (
+                <button
+                  key={t.key}
+                  onClick={() => setSendTarget(t.key)}
+                  className={cn(
+                    'flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-all text-center',
+                    sendTarget === t.key
+                      ? 'border-indigo-500/60 bg-indigo-500/10 text-indigo-300'
+                      : 'border-white/10 bg-white/3 text-tv-muted hover:bg-white/5 hover:text-tv-text'
+                  )}
+                >
+                  <span className="text-xl">{t.icon}</span>
+                  <span className="text-xs font-medium">{t.label}</span>
+                  <span className="text-[11px] opacity-60">{t.desc}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Group selector */}
+            {sendTarget === 'group' && (
+              <div className="space-y-2">
+                {screenGroups.length === 0 ? (
+                  <p className="text-tv-muted text-sm text-center py-2">Henüz grup yok</p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                    {screenGroups.map((g) => (
+                      <button
+                        key={g.id}
+                        onClick={() => setSendGroupId(g.id)}
+                        className={cn(
+                          'flex items-center gap-2.5 px-3 py-2.5 rounded-xl border text-left transition-all',
+                          sendGroupId === g.id
+                            ? 'border-indigo-500/60 bg-indigo-500/10'
+                            : 'border-white/10 hover:bg-white/5'
+                        )}
+                      >
+                        <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: g.color ?? '#6366f1' }} />
+                        <div className="min-w-0">
+                          <p className="text-sm text-tv-text font-medium truncate">{g.name}</p>
+                          <p className="text-[11px] text-tv-muted">{g.screenCount ?? 0} ekran</p>
+                        </div>
+                        {sendGroupId === g.id && (
+                          <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-indigo-400 ml-auto flex-shrink-0">
+                            <path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+                          </svg>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Individual screen selector */}
+            {sendTarget === 'screens' && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-tv-muted">{sendScreenIds.size} ekran seçildi</span>
+                  <button
+                    onClick={() => setSendScreenIds(
+                      sendScreenIds.size === screens.length ? new Set() : new Set(screens.map((s) => s.id))
+                    )}
+                    className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+                  >
+                    {sendScreenIds.size === screens.length ? 'Seçimi Kaldır' : 'Tümünü Seç'}
+                  </button>
+                </div>
+                {screens.length === 0 ? (
+                  <p className="text-tv-muted text-sm text-center py-3">Ekran bulunamadı</p>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-48 overflow-y-auto pr-1">
+                    {screens.map((s) => (
+                      <button
+                        key={s.id}
+                        onClick={() => {
+                          const next = new Set(sendScreenIds);
+                          next.has(s.id) ? next.delete(s.id) : next.add(s.id);
+                          setSendScreenIds(next);
+                        }}
+                        className={cn(
+                          'flex items-center gap-2.5 px-3 py-2 rounded-xl border text-left transition-all',
+                          sendScreenIds.has(s.id)
+                            ? 'border-indigo-500/60 bg-indigo-500/10'
+                            : 'border-white/10 hover:bg-white/5'
+                        )}
+                      >
+                        <div className={cn(
+                          'w-2 h-2 rounded-full flex-shrink-0',
+                          s.isOnline ? 'bg-emerald-400' : 'bg-white/20'
+                        )} />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm text-tv-text font-medium truncate">{s.name}</p>
+                          {s.location && <p className="text-[11px] text-tv-muted truncate">{s.location}</p>}
+                        </div>
+                        <div className={cn(
+                          'w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-all',
+                          sendScreenIds.has(s.id) ? 'bg-indigo-500 border-indigo-500' : 'border-white/30'
+                        )}>
+                          {sendScreenIds.has(s.id) && (
+                            <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" className="w-2.5 h-2.5">
+                              <path d="M20 6 9 17l-5-5" />
+                            </svg>
+                          )}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* ── Hızlı Yayın ─────────────────────────── */}
           <div className="admin-card space-y-4">
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-              <h3 className="font-semibold text-tv-text">Hızlı Yayın</h3>
+              <h3 className="font-semibold text-tv-text">Hızlı Video Yayını</h3>
             </div>
             <div>
               <label className="text-xs text-tv-muted mb-1.5 block">YouTube URL veya Video ID</label>
@@ -817,48 +1076,101 @@ export default function YouTubePage() {
               className="btn-primary w-full justify-center disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4"><path d="M8 5v14l11-7z" /></svg>
-              Tüm Ekranlara Yayınla
+              {sendTarget === 'all' ? 'Tüm Ekranlara Yayınla' :
+               sendTarget === 'group' && sendGroupId ? `"${screenGroups.find(g => g.id === sendGroupId)?.name}" Grubuna Yayınla` :
+               sendTarget === 'screens' && sendScreenIds.size > 0 ? `${sendScreenIds.size} Ekrana Yayınla` :
+               'Tüm Ekranlara Yayınla'}
             </button>
           </div>
 
+          {/* ── Playlist Yayını ──────────────────────── */}
           <div className="admin-card space-y-3">
-            <h3 className="font-semibold text-tv-text">\uD83D\uDCCB Playlist Yayını</h3>
-            <button onClick={broadcastActivePlaylist} className="btn-secondary w-full justify-center flex items-center gap-2">
-              <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4"><path d="M8 5v14l11-7z" /></svg>
-              Tüm Aktif Videolar ({activeCount} video)
-            </button>
-            {playlists.length > 0 && (
-              <div className="space-y-2 pt-1">
-                {playlists.map((pl) => (
-                  <div key={pl.id} className="flex items-center justify-between bg-white/5 hover:bg-white/8 rounded-xl px-4 py-3 transition-colors">
-                    <div>
-                      <p className="text-sm text-tv-text font-medium">{pl.name}</p>
-                      <p className="text-xs text-tv-muted">{pl.videoCount ?? 0} video</p>
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-tv-text">📋 Playlist Yayını</h3>
+              <button
+                onClick={() => {
+                  const active = videos.filter((v) => v.isActive);
+                  if (active.length === 0) { toast.error('Aktif video yok'); return; }
+                  const getTargetIds = () => {
+                    if (sendTarget === 'group' && sendGroupId)
+                      return screens.filter((s) => s.groupId === sendGroupId).map((s) => s.id);
+                    if (sendTarget === 'screens' && sendScreenIds.size > 0)
+                      return Array.from(sendScreenIds);
+                    return undefined;
+                  };
+                  dispatchBroadcast(
+                    'play_playlist',
+                    { videos: active.map((v) => ({ videoId: v.videoId, title: v.title })) },
+                    getTargetIds()
+                  ).then(() => toast.success(`${active.length} aktif video yayınlandı`));
+                }}
+                className="btn-secondary text-xs py-1.5 flex items-center gap-1.5"
+              >
+                <svg viewBox="0 0 24 24" fill="currentColor" className="w-3.5 h-3.5"><path d="M8 5v14l11-7z" /></svg>
+                Tüm Aktif ({activeCount})
+              </button>
+            </div>
+            {playlists.length === 0 ? (
+              <p className="text-tv-muted text-sm text-center py-4">Henüz playlist yok</p>
+            ) : (
+              <div className="space-y-2">
+                {playlists.map((pl) => {
+                  const plVideos = videos.filter((v) => v.playlistId === pl.id && v.isActive);
+                  const accent = pl.color ?? '#6366f1';
+                  return (
+                    <div
+                      key={pl.id}
+                      className="flex items-center gap-3 bg-white/5 hover:bg-white/8 rounded-xl px-4 py-3 transition-colors border border-white/5"
+                    >
+                      <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: accent }} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-tv-text font-medium truncate">{pl.name}</p>
+                        <p className="text-xs text-tv-muted">{plVideos.length} aktif / {pl.videoCount ?? 0} toplam video</p>
+                      </div>
+                      <button
+                        onClick={() => openSendModal(pl)}
+                        disabled={plVideos.length === 0}
+                        className="flex items-center gap-1.5 text-xs text-white font-semibold px-3 py-1.5 rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                        style={{ backgroundColor: accent }}
+                      >
+                        <svg viewBox="0 0 24 24" fill="currentColor" className="w-3.5 h-3.5"><path d="M8 5v14l11-7z" /></svg>
+                        Gönder
+                      </button>
                     </div>
-                    <button onClick={() => broadcastPlaylistById(pl)} className="btn-primary text-xs py-1.5">\u25B6 Oynat</button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
 
+          {/* ── Layout Kontrolü ──────────────────────── */}
           <div className="admin-card space-y-3">
             <div>
-              <h3 className="font-semibold text-tv-text">\uD83C\uDFA8 Ekran Layoutu</h3>
-              <p className="text-tv-muted text-xs mt-0.5">Tüm ekranlara layout komutu gönderir</p>
+              <h3 className="font-semibold text-tv-text">🎨 Ekran Layoutu</h3>
+              <p className="text-tv-muted text-xs mt-0.5">Seçili hedefe layout komutu gönderir</p>
             </div>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {[
-                { type: 'youtube', label: 'YouTube + Feed', icon: '\uD83D\uDCFA' },
-                { type: 'fullscreen', label: 'Tam Ekran Video', icon: '\u26F6' },
-                { type: 'split_2', label: 'Split (2 Alan)', icon: '\u229F' },
-                { type: 'default', label: 'Varsayılan', icon: '\uD83C\uDFE0' },
-                { type: 'digital_signage', label: 'Digital Signage', icon: '\uD83D\uDDA5' },
-                { type: 'instagram', label: 'Instagram', icon: '\uD83D\uDCF8' },
+                { type: 'youtube', label: 'YouTube + Feed', icon: '📺' },
+                { type: 'fullscreen', label: 'Tam Ekran Video', icon: '⛶' },
+                { type: 'split_2', label: 'Split (2 Alan)', icon: '⊟' },
+                { type: 'default', label: 'Varsayılan', icon: '🏠' },
+                { type: 'digital_signage', label: 'Digital Signage', icon: '🖥️' },
+                { type: 'instagram', label: 'Instagram', icon: '📸' },
               ].map((l) => (
                 <button
                   key={l.type}
-                  onClick={() => changeLayout(l.type)}
+                  onClick={async () => {
+                    const getTargetIds = () => {
+                      if (sendTarget === 'group' && sendGroupId)
+                        return screens.filter((s) => s.groupId === sendGroupId).map((s) => s.id);
+                      if (sendTarget === 'screens' && sendScreenIds.size > 0)
+                        return Array.from(sendScreenIds);
+                      return undefined;
+                    };
+                    await dispatchBroadcast('change_layout', { layoutType: l.type }, getTargetIds());
+                    toast.success(`Layout "${l.label}" gönderildi`);
+                  }}
                   className="btn-secondary flex items-center gap-2 justify-start text-sm"
                 >
                   <span>{l.icon}</span> {l.label}
@@ -1285,6 +1597,236 @@ export default function YouTubePage() {
                     </motion.div>
                   )}
                 </AnimatePresence>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      {/* ───── Playlist Gönder Modal ───── */}
+      <AnimatePresence>
+        {showSendModal && sendModalPlaylist && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={(e) => e.target === e.currentTarget && closeSendModal()}
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 10 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="admin-card w-full max-w-lg space-y-5 max-h-[92vh] overflow-y-auto"
+            >
+              {/* Header */}
+              <div className="flex items-center gap-3">
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center text-lg flex-shrink-0"
+                  style={{ backgroundColor: (sendModalPlaylist.color ?? '#6366f1') + '22', border: `1px solid ${sendModalPlaylist.color ?? '#6366f1'}44` }}
+                >
+                  📺
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-bold text-tv-text truncate">Playlist Gönder</h3>
+                  <p className="text-tv-muted text-xs mt-0.5 truncate">
+                    {sendModalPlaylist.name} · {videos.filter(v => v.playlistId === sendModalPlaylist.id && v.isActive).length} aktif video
+                  </p>
+                </div>
+                <button onClick={closeSendModal} className="w-8 h-8 flex items-center justify-center text-tv-muted hover:text-tv-text hover:bg-white/5 rounded-lg transition-colors flex-shrink-0">✕</button>
+              </div>
+
+              {/* Hedef seçimi */}
+              <div className="space-y-3">
+                <label className="text-xs text-tv-muted font-medium uppercase tracking-wider">Hedef Ekran</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    { key: 'all' as SendTarget, label: 'Tüm Ekranlar', icon: '📺' },
+                    { key: 'group' as SendTarget, label: 'Grup', icon: '🗂️' },
+                    { key: 'screens' as SendTarget, label: 'Belirli Ekran', icon: '🖥️' },
+                  ] as const).map((t) => (
+                    <button
+                      key={t.key}
+                      onClick={() => {
+                        setSendTarget(t.key);
+                        if (t.key === 'group' && !sendGroupId && screenGroups.length > 0) {
+                          setSendGroupId(screenGroups[0].id);
+                        }
+                      }}
+                      className={cn(
+                        'flex flex-col items-center gap-1 py-2.5 px-2 rounded-xl border text-center transition-all',
+                        sendTarget === t.key
+                          ? 'border-indigo-500/60 bg-indigo-500/10 text-indigo-300'
+                          : 'border-white/10 text-tv-muted hover:bg-white/5 hover:text-tv-text'
+                      )}
+                    >
+                      <span className="text-lg">{t.icon}</span>
+                      <span className="text-[11px] font-medium">{t.label}</span>
+                    </button>
+                  ))}
+                </div>
+
+                {/* Grup listesi */}
+                {sendTarget === 'group' && (
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    {screenGroups.length === 0 ? (
+                      <p className="col-span-2 text-tv-muted text-sm text-center py-2">Henüz grup yok</p>
+                    ) : screenGroups.map((g) => (
+                      <button
+                        key={g.id}
+                        onClick={() => setSendGroupId(g.id)}
+                        className={cn(
+                          'flex items-center gap-2 px-3 py-2 rounded-xl border text-left transition-all',
+                          sendGroupId === g.id ? 'border-indigo-500/60 bg-indigo-500/10' : 'border-white/10 hover:bg-white/5'
+                        )}
+                      >
+                        <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: g.color ?? '#6366f1' }} />
+                        <div className="min-w-0">
+                          <p className="text-xs text-tv-text font-medium truncate">{g.name}</p>
+                          <p className="text-[11px] text-tv-muted">{g.screenCount ?? 0} ekran</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Ekran listesi */}
+                {sendTarget === 'screens' && (
+                  <div className="space-y-1.5 pt-1">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-tv-muted">{sendScreenIds.size} seçildi</span>
+                      <button
+                        onClick={() => setSendScreenIds(
+                          sendScreenIds.size === screens.length ? new Set() : new Set(screens.map(s => s.id))
+                        )}
+                        className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+                      >
+                        {sendScreenIds.size === screens.length ? 'Seçimi Kaldır' : 'Tümünü Seç'}
+                      </button>
+                    </div>
+                    <div className="max-h-44 overflow-y-auto space-y-1 pr-1">
+                      {screens.length === 0 ? (
+                        <p className="text-tv-muted text-sm text-center py-3">Ekran bulunamadı</p>
+                      ) : screens.map((s) => (
+                        <button
+                          key={s.id}
+                          onClick={() => {
+                            const next = new Set(sendScreenIds);
+                            next.has(s.id) ? next.delete(s.id) : next.add(s.id);
+                            setSendScreenIds(next);
+                          }}
+                          className={cn(
+                            'w-full flex items-center gap-2.5 px-3 py-2 rounded-xl border text-left transition-all',
+                            sendScreenIds.has(s.id) ? 'border-indigo-500/60 bg-indigo-500/10' : 'border-white/8 hover:bg-white/5'
+                          )}
+                        >
+                          <div className={cn('w-2 h-2 rounded-full flex-shrink-0', s.isOnline ? 'bg-emerald-400' : 'bg-white/20')} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-tv-text font-medium truncate">{s.name}</p>
+                            {s.location && <p className="text-[11px] text-tv-muted truncate">{s.location}</p>}
+                          </div>
+                          <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full', s.isOnline ? 'bg-emerald-500/15 text-emerald-400' : 'bg-white/8 text-tv-muted')}>
+                            {s.isOnline ? 'Çevrimiçi' : 'Çevrimdışı'}
+                          </span>
+                          <div className={cn(
+                            'w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-all',
+                            sendScreenIds.has(s.id) ? 'bg-indigo-500 border-indigo-500' : 'border-white/30'
+                          )}>
+                            {sendScreenIds.has(s.id) && (
+                              <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" className="w-2.5 h-2.5"><path d="M20 6 9 17l-5-5" /></svg>
+                            )}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Layout seçimi */}
+              <div className="space-y-2">
+                <label className="text-xs text-tv-muted font-medium uppercase tracking-wider">Layout</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { type: 'none', label: 'Değiştirme', icon: '⚡' },
+                    { type: 'youtube', label: 'YouTube', icon: '📺' },
+                    { type: 'fullscreen', label: 'Tam Ekran', icon: '⛶' },
+                    { type: 'split_2', label: 'Split', icon: '⊟' },
+                    { type: 'digital_signage', label: 'Signage', icon: '🖥️' },
+                    { type: 'default', label: 'Varsayılan', icon: '🏠' },
+                  ].map((l) => (
+                    <button
+                      key={l.type}
+                      onClick={() => setSendLayout(l.type)}
+                      className={cn(
+                        'flex items-center gap-2 px-3 py-2 rounded-xl border text-left transition-all text-sm',
+                        sendLayout === l.type
+                          ? 'border-indigo-500/60 bg-indigo-500/10 text-indigo-300'
+                          : 'border-white/10 text-tv-muted hover:bg-white/5 hover:text-tv-text'
+                      )}
+                    >
+                      <span>{l.icon}</span>
+                      <span className="text-xs font-medium">{l.label}</span>
+                    </button>
+                  ))}
+                </div>
+                {sendLayout !== 'none' && (
+                  <p className="text-[11px] text-tv-muted">
+                    Önce <span className="text-indigo-300 font-medium">{sendLayout}</span> layoutuna geçilecek, ardından playlist başlatılacak.
+                  </p>
+                )}
+              </div>
+
+              {/* Özet */}
+              <div className="bg-white/5 rounded-xl px-4 py-3 space-y-1.5 border border-white/8">
+                <div className="flex justify-between text-xs">
+                  <span className="text-tv-muted">Playlist</span>
+                  <span className="text-tv-text font-medium">{sendModalPlaylist.name}</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-tv-muted">Videolar</span>
+                  <span className="text-emerald-400">{videos.filter(v => v.playlistId === sendModalPlaylist.id && v.isActive).length} aktif video</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-tv-muted">Hedef</span>
+                  <span className="text-tv-text">
+                    {sendTarget === 'all' ? 'Tüm ekranlar' :
+                     sendTarget === 'group' && sendGroupId ? screenGroups.find(g => g.id === sendGroupId)?.name ?? 'Grup' :
+                     sendTarget === 'screens' && sendScreenIds.size > 0 ? `${sendScreenIds.size} ekran` :
+                     '—'}
+                  </span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-tv-muted">Layout</span>
+                  <span className="text-tv-text">{sendLayout === 'none' ? 'Mevcut layout' : sendLayout}</span>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-3 pt-1">
+                <button onClick={closeSendModal} className="btn-secondary flex-1">İptal</button>
+                <button
+                  onClick={executeSendPlaylist}
+                  disabled={
+                    sendingBroadcast ||
+                    videos.filter(v => v.playlistId === sendModalPlaylist.id && v.isActive).length === 0 ||
+                    (sendTarget === 'screens' && sendScreenIds.size === 0) ||
+                    (sendTarget === 'group' && !sendGroupId)
+                  }
+                  className="btn-primary flex-1 justify-center disabled:opacity-40 disabled:cursor-not-allowed"
+                  style={{ backgroundColor: sendModalPlaylist.color ?? undefined }}
+                >
+                  {sendingBroadcast ? (
+                    <span className="flex items-center gap-2">
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      Gönderiliyor...
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1.5">
+                      <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4"><path d="M8 5v14l11-7z" /></svg>
+                      Gönder
+                    </span>
+                  )}
+                </button>
               </div>
             </motion.div>
           </motion.div>
